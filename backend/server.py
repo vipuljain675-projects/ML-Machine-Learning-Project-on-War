@@ -15,11 +15,33 @@ from sklearn.preprocessing import StandardScaler
 from itertools import combinations
 import json
 import uvicorn
+import os
 
 # ============================================================
 # DEVICE SETUP
 # ============================================================
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# ============================================================
+# NUMPY → JSON FIX — prevents numpy.float32 500 errors
+# ============================================================
+def clean(obj):
+    """Recursively convert numpy/torch types to native Python for JSON."""
+    if isinstance(obj, dict):
+        return {k: clean(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [clean(i) for i in obj]
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, (np.float32, np.float64, np.float16)):
+        return float(obj)
+    elif isinstance(obj, (np.int32, np.int64, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, torch.Tensor):
+        return obj.item() if obj.numel() == 1 else obj.tolist()
+    return obj
 
 # ============================================================
 # CONFIGURATION (from your model)
@@ -447,9 +469,10 @@ def build_data():
     return X_tensor, adj_tensor, adj_matrix, pair_indices, pair_meta, targets_tensor, scaler
 
 
+WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), 'conflict_model_v3.pt')
+
 def train_model():
-    """Train the model from scratch (takes ~30 seconds)."""
-    print("🧠 Building data and training model...")
+    """Load pre-trained weights if available, otherwise train from scratch."""
     X_tensor, adj_tensor, adj_matrix, pair_indices, pair_meta, targets_tensor, scaler = build_data()
 
     model = GeopoliticalConflictModel(
@@ -457,6 +480,34 @@ def train_model():
         gnn_hidden=64, gnn_out=32, dropout=0.2
     ).to(device)
 
+    # ── Try loading saved weights first ──────────────────────
+    if os.path.exists(WEIGHTS_PATH):
+        print(f"⚡ Loading pre-trained weights from {WEIGHTS_PATH}")
+        checkpoint = torch.load(WEIGHTS_PATH, map_location=device, weights_only=True)
+        model.load_state_dict(checkpoint['model_state'])
+
+        # Restore scaler params so predictions are consistent
+        if 'scaler_mean' in checkpoint:
+            scaler.mean_ = np.array(checkpoint['scaler_mean'])
+            scaler.scale_ = np.array(checkpoint['scaler_scale'])
+            # Rebuild X_tensor with checkpoint scaler
+            raw_data = []
+            for country in OUR_COUNTRIES:
+                country_feats = []
+                for i in range(N_YEARS):
+                    country_feats.append([COUNTRY_DATA[country][f][i] for f in FEATURES])
+                raw_data.append(country_feats)
+            X_raw = np.array(raw_data, dtype=np.float32)
+            X_scaled = scaler.transform(X_raw.reshape(-1, N_FEATURES)).reshape(N_COUNTRIES, N_YEARS, N_FEATURES)
+            X_tensor = torch.FloatTensor(X_scaled).to(device)
+
+        print(f"✅ Model loaded — epochs: {checkpoint.get('epochs', '?')}, loss: {checkpoint.get('final_loss', '?'):.4f}")
+        model.eval()
+        return model, X_tensor, adj_tensor, adj_matrix, pair_indices, pair_meta, scaler
+
+    # ── No saved weights — train from scratch ─────────────────
+    print("🧠 No saved weights found. Training from scratch (~30s)...")
+    print("   Tip: Run 'python3 train.py' once to save weights for instant startup.")
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=50, factor=0.5)
     loss_fn = nn.BCELoss()
@@ -470,11 +521,12 @@ def train_model():
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         scheduler.step(loss)
-        if (epoch+1) % 100 == 0:
+        if (epoch + 1) % 100 == 0:
             print(f"   Epoch {epoch+1:4d} | Loss: {loss.item():.4f}")
 
     print(f"✅ Training complete — Final loss: {loss.item():.4f}")
     return model, X_tensor, adj_tensor, adj_matrix, pair_indices, pair_meta, scaler
+
 
 
 def get_predictions(model, X_tensor, adj_tensor, pair_indices, pair_meta):
@@ -592,16 +644,13 @@ def root():
 @app.get("/predictions")
 def get_all_predictions():
     """Return all 91 country-pair conflict probabilities."""
-    return {"predictions": all_predictions}
+    return clean({"predictions": all_predictions})
 
 
 @app.get("/risks")
 def get_all_risks():
     """Return per-country risk timeline 2025-2040 from LSTM."""
-    return {
-        "years": YEARS,
-        "risks": all_country_risks
-    }
+    return clean({"years": YEARS, "risks": all_country_risks})
 
 
 @app.get("/graph")
@@ -611,20 +660,20 @@ def get_graph():
     for ca, cb, w, etype in ALLIANCE_EDGES:
         edges.append({
             "source": ca, "target": cb,
-            "weight": w, "type": etype,
-            "is_alliance": w > 0
+            "weight": float(w), "type": etype,
+            "is_alliance": bool(w > 0)
         })
     countries = []
     for c in OUR_COUNTRIES:
         countries.append({
             "name": c,
             "coords": COUNTRY_COORDS[c],
-            "nuclear": c in NUCLEAR_STATES,
+            "nuclear": bool(c in NUCLEAR_STATES),
             "bloc": COUNTRY_BLOCS[c],
-            "risk_2025": all_country_risks[c][0],
-            "features": {f: COUNTRY_DATA[c][f] for f in FEATURES}
+            "risk_2025": float(all_country_risks[c][0]),
+            "features": {f: [float(v) for v in COUNTRY_DATA[c][f]] for f in FEATURES}
         })
-    return {"countries": countries, "edges": edges}
+    return clean({"countries": countries, "edges": edges})
 
 
 @app.post("/cascade")
@@ -646,12 +695,12 @@ def run_cascade(req: CascadeRequest):
         CASCADE_RULES.get((req.country_b, req.country_a), [])
     )
 
-    return {
+    return clean({
         "primary": {"country_a": req.country_a, "country_b": req.country_b},
-        "initial_prob": round(req.initial_prob * 100, 1),
+        "initial_prob": round(float(req.initial_prob) * 100, 1),
         "cascade": cascade,
-        "rules": [{"country": r[0], "pull_factor": r[1], "reason": r[2]} for r in rules]
-    }
+        "rules": [{"country": r[0], "pull_factor": float(r[1]), "reason": r[2]} for r in rules]
+    })
 
 
 @app.post("/scenario")
@@ -687,27 +736,27 @@ def run_scenario(req: ScenarioRequest):
     country_details = {}
     for c in OUR_COUNTRIES:
         country_details[c] = {
-            "risk": all_country_risks[c][year_idx],
-            "cascade_risk": cascade.get(c, 0),
+            "risk": float(all_country_risks[c][year_idx]),
+            "cascade_risk": float(cascade.get(c, 0)),
             "coords": COUNTRY_COORDS[c],
-            "nuclear": c in NUCLEAR_STATES,
+            "nuclear": bool(c in NUCLEAR_STATES),
             "bloc": COUNTRY_BLOCS[c],
-            "features_at_year": {f: COUNTRY_DATA[c][f][year_idx] for f in FEATURES}
+            "features_at_year": {f: float(COUNTRY_DATA[c][f][year_idx]) for f in FEATURES}
         }
 
-    return {
+    return clean({
         "scenario": {
             "id": req.scenario_id,
             "title": config["title"],
             "description": config["desc"],
             "year": req.year or config["year"],
             "primary": {"country_a": config["a"], "country_b": config["b"]},
-            "conflict_probability": prob,
+            "conflict_probability": float(prob),
         },
         "cascade": cascade,
         "countries": country_details,
         "predictions": all_predictions,
-    }
+    })
 
 
 @app.get("/country/{country_name}")

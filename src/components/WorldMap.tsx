@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, Tooltip, useMap, ZoomControl } from 'react-leaflet';
 import { useApp } from '../context/AppContext';
 import L from 'leaflet';
+import MapSearchBar from './MapSearchBar';
+import { GLOBAL_MILITARY_BASES, BaseType } from '../data/militaryBases';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -27,7 +29,7 @@ const COUNTRY_COORDS: Record<string, [number, number]> = {
 // SCENARIO MILITARY MOVEMENTS — realistic Pacific routing
 // ============================================================
 interface MilitaryMovement {
-    positions: [number, number][]; // multi-point path (not just from→to)
+    positions: [number, number][];
     color: string;
     label: string;
     type: 'attack' | 'reinforce' | 'naval' | 'air' | 'missile' | 'blockade';
@@ -40,9 +42,19 @@ interface ConflictPoint {
     intensity: 'high' | 'medium' | 'low';
 }
 
+// NEW: Origin bases — where forces permanently station
+interface MilitaryBase {
+    coords: [number, number];
+    label: string;        // e.g. "US 7th Fleet HQ — Yokosuka"
+    country: string;      // e.g. "USA"
+    type: 'naval' | 'air' | 'army' | 'missile';
+    flag: string;         // emoji flag
+}
+
 interface ScenarioOverlay {
     movements: MilitaryMovement[];
     conflictPoints: ConflictPoint[];
+    bases: MilitaryBase[];       // NEW
     focusCenter: [number, number];
     focusZoom: number;
 }
@@ -60,6 +72,17 @@ const SCENARIO_OVERLAYS: Record<string, ScenarioOverlay> = {
     china_taiwan: {
         focusCenter: [26, 118],
         focusZoom: 5,
+        bases: [
+            { coords: [35.28, 139.67], label: 'US 7th Fleet HQ', country: 'USA', type: 'naval', flag: '🇺🇸' },
+            { coords: [13.58, 144.93], label: 'Andersen AFB — B-2/B-52', country: 'USA', type: 'air', flag: '🇺🇸' },
+            { coords: [26.36, 127.79], label: 'Kadena AB — F-15/F-35', country: 'USA', type: 'air', flag: '🇺🇸' },
+            { coords: [39.77, 116.39], label: 'PLA Eastern Theater HQ', country: 'China', type: 'army', flag: '🇨🇳' },
+            { coords: [26.07, 119.30], label: 'PLA Fuzhou Naval Base', country: 'China', type: 'naval', flag: '🇨🇳' },
+            { coords: [18.25, 109.50], label: 'PLAN Sanya Naval Base', country: 'China', type: 'naval', flag: '🇨🇳' },
+            { coords: [34.26, 108.94], label: 'PLA Rocket Force — DF-21/DF-26', country: 'China', type: 'missile', flag: '🇨🇳' },
+            { coords: [50.80, -1.10], label: 'HMS Queen Elizabeth — Portsmouth', country: 'UK', type: 'naval', flag: '🇬🇧' },
+            { coords: [17.69, 83.22], label: 'INS Visakhapatnam (Eastern Naval)', country: 'India', type: 'naval', flag: '🇮🇳' },
+        ],
         movements: [
             // === PLA INVASION ===
             { positions: [[26.07, 119.3], [24.8, 120.5], [24.2, 121.0]], color: '#ef4444', label: 'PLA Amphibious Assault (Main)', type: 'attack', thickness: 5 },
@@ -87,6 +110,15 @@ const SCENARIO_OVERLAYS: Record<string, ScenarioOverlay> = {
     iran_israel: {
         focusCenter: [32, 44],
         focusZoom: 5,
+        bases: [
+            { coords: [26.23, 50.55], label: 'US 5th Fleet HQ — Bahrain', country: 'USA', type: 'naval', flag: '🇺🇸' },
+            { coords: [49.44, 7.60], label: 'Ramstein AFB — USAF/AWACS', country: 'USA', type: 'air', flag: '🇺🇸' },
+            { coords: [31.72, 35.21], label: 'Nevatim AB — F-35I Adir', country: 'Israel', type: 'air', flag: '🇮🇱' },
+            { coords: [32.43, 53.69], label: 'IRGC Aerospace HQ — Tehran', country: 'Iran', type: 'missile', flag: '🇮🇷' },
+            { coords: [35.69, 51.39], label: 'Shahab / Emad Launch Sites', country: 'Iran', type: 'missile', flag: '🇮🇷' },
+            { coords: [33.90, 35.50], label: 'Hezbollah HQ — Beirut', country: 'Iran', type: 'army', flag: '🚩' },
+            { coords: [23.89, 45.08], label: 'Saudi Patriot Batteries — Riyadh', country: 'Saudi Arabia', type: 'missile', flag: '🇸🇦' },
+        ],
         movements: [
             { positions: [[32.43, 53.69], [33.0, 46.0], [32.0, 38.0], [31.05, 34.85]], color: '#ef4444', label: 'Shahab-3 / Emad Ballistic Missiles', type: 'missile', thickness: 4 },
             { positions: [[33.3, 44.4], [32.5, 40.0], [31.5, 35.5]], color: '#ef4444', label: 'Iraq-based Proxy Strikes', type: 'attack', thickness: 3 },
@@ -107,6 +139,14 @@ const SCENARIO_OVERLAYS: Record<string, ScenarioOverlay> = {
     india_pakistan: {
         focusCenter: [31, 73],
         focusZoom: 5,
+        bases: [
+            { coords: [28.60, 77.20], label: 'Indian Army HQ — New Delhi', country: 'India', type: 'army', flag: '🇮🇳' },
+            { coords: [17.69, 83.22], label: 'INS Eastern Naval — Vizag', country: 'India', type: 'naval', flag: '🇮🇳' },
+            { coords: [25.90, 73.01], label: 'IAF Jodhpur — Rafale/Su-30', country: 'India', type: 'air', flag: '🇮🇳' },
+            { coords: [33.72, 73.04], label: 'Pakistan Army GHQ — Rawalpindi', country: 'Pakistan', type: 'army', flag: '🇵🇰' },
+            { coords: [24.86, 67.01], label: 'PNS Karachi Naval Base', country: 'Pakistan', type: 'naval', flag: '🇵🇰' },
+            { coords: [35.86, 104.20], label: 'PLA Western Theater (LAC support)', country: 'China', type: 'army', flag: '🇨🇳' },
+        ],
         movements: [
             { positions: [[32.7, 74.86], [33.2, 74.2], [33.8, 73.5]], color: '#22c55e', label: 'Indian Army — LoC Offensive', type: 'attack', thickness: 5 },
             { positions: [[26.9, 70.9], [27.2, 69.5], [27.5, 68.0]], color: '#22c55e', label: 'Rajasthan Desert Corps', type: 'attack', thickness: 3 },
@@ -124,6 +164,15 @@ const SCENARIO_OVERLAYS: Record<string, ScenarioOverlay> = {
     russia_nato: {
         focusCenter: [55, 25],
         focusZoom: 4,
+        bases: [
+            { coords: [36.93, -76.29], label: 'US Naval Station Norfolk', country: 'USA', type: 'naval', flag: '🇺🇸' },
+            { coords: [49.44, 7.60], label: 'Ramstein AFB — US Air Forces Europe', country: 'USA', type: 'air', flag: '🇺🇸' },
+            { coords: [55.38, -3.44], label: 'HMNB Clyde — UK Trident SSBNs', country: 'UK', type: 'naval', flag: '🇬🇧' },
+            { coords: [46.60, 1.89], label: 'BA Évreux — French Rafale', country: 'France', type: 'air', flag: '🇫🇷' },
+            { coords: [59.95, 30.32], label: 'St. Petersburg — Baltic Fleet', country: 'Russia', type: 'naval', flag: '🇷🇺' },
+            { coords: [54.71, 20.51], label: 'Kaliningrad — Baltic Exclave', country: 'Russia', type: 'missile', flag: '🇷🇺' },
+            { coords: [69.07, 33.42], label: 'Severomorsk — Northern Fleet', country: 'Russia', type: 'naval', flag: '🇷🇺' },
+        ],
         movements: [
             { positions: [[54.71, 20.51], [54.3, 19.5], [54.0, 18.5]], color: '#ef4444', label: 'Kaliningrad — Suwalki Gap Offensive', type: 'attack', thickness: 5 },
             { positions: [[59.95, 30.32], [59.5, 27.0], [59.0, 24.5]], color: '#ef4444', label: 'Russia — Baltic Push', type: 'attack', thickness: 4 },
@@ -142,6 +191,14 @@ const SCENARIO_OVERLAYS: Record<string, ScenarioOverlay> = {
     china_india: {
         focusCenter: [30, 82],
         focusZoom: 5,
+        bases: [
+            { coords: [35.86, 104.20], label: 'PLA Western Theater HQ', country: 'China', type: 'army', flag: '🇨🇳' },
+            { coords: [29.60, 91.10], label: 'PLA Lhasa Garrison — Tibet', country: 'China', type: 'army', flag: '🇨🇳' },
+            { coords: [30.38, 69.35], label: 'Pakistan GHQ — 2nd Front', country: 'Pakistan', type: 'army', flag: '🇵🇰' },
+            { coords: [28.60, 77.20], label: 'Indian Army Northern Command — Delhi', country: 'India', type: 'army', flag: '🇮🇳' },
+            { coords: [25.90, 73.01], label: 'IAF Jodhpur Air Base', country: 'India', type: 'air', flag: '🇮🇳' },
+            { coords: [35.28, 139.67], label: 'US 7th Fleet — Yokosuka (Bay of Bengal)', country: 'USA', type: 'naval', flag: '🇺🇸' },
+        ],
         movements: [
             { positions: [[35.86, 104.2], [35.0, 90.0], [34.5, 80.0], [34.16, 77.58]], color: '#ef4444', label: 'PLA Western Theater — LAC Push', type: 'attack', thickness: 5 },
             { positions: [[29.6, 91.1], [28.5, 89.5], [27.5, 88.3]], color: '#ef4444', label: 'PLA — Arunachal Pradesh Push', type: 'attack', thickness: 4 },
@@ -203,6 +260,7 @@ export default function WorldMap() {
     const [showAlliances, setShowAlliances] = useState(true);
     const [showFacts, setShowFacts] = useState(true);
     const [showHeatmap, setShowHeatmap] = useState(true);
+    const [showGlobalBases, setShowGlobalBases] = useState(true);
 
     const yearIdx = Math.min(Math.max(selectedYear - 2025, 0), 15);
     const yearMultiplier = getYearMultiplier(selectedYear);
@@ -245,11 +303,83 @@ export default function WorldMap() {
                 maxZoom={12}
             >
                 <TileLayer
-                    url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}"
+                    attribution='Esri, USGS'
+                />
+                {/* Military terrain tint overlay */}
+                <TileLayer
+                    url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png"
                     attribution='&copy; CARTO'
+                    opacity={0.55}
                 />
                 <ZoomControl position="bottomright" />
                 <MapUpdater center={mapCenter} zoom={mapZoom} />
+
+                {/* === GOOGLE MAPS-STYLE SEARCH BAR === */}
+                <MapSearchBar />
+
+                {/* === GLOBAL MILITARY BASES (all nations, always shown) === */}
+                {showGlobalBases && GLOBAL_MILITARY_BASES.map((base) => {
+                    const scenarioId = activeScenario?.scenario?.id as keyof typeof base.scenarioRoles | undefined;
+                    const role = scenarioId ? base.scenarioRoles[scenarioId] : null;
+                    const baseTypeColor: Record<BaseType, string> = {
+                        naval: '#1d4ed8', air: '#0891b2', army: '#15803d',
+                        missile: '#b45309', drone: '#7c3aed', hq: '#b91c1c',
+                    };
+                    const bc = baseTypeColor[base.type as BaseType] || '#374151';
+                    const dimmed = !!activeScenario && !role;
+                    const isCritical = role?.startsWith('🔴');
+                    const isActive = role?.startsWith('🟠');
+                    const ringR = dimmed ? 8 : isCritical ? 16 : isActive ? 13 : 10;
+                    const innerR = dimmed ? 3 : isCritical ? 7 : isActive ? 6 : 4;
+                    const typeIcon: Record<BaseType, string> = {
+                        naval: '⚓', air: '✈', army: '⬛', missile: '🚀', drone: '🛸', hq: '★',
+                    };
+                    return (
+                        <React.Fragment key={base.id}>
+                            <CircleMarker center={base.coords} radius={ringR}
+                                pathOptions={{ color: bc, fillColor: bc, fillOpacity: dimmed ? 0.03 : 0.07, weight: isCritical ? 2 : 1.5, opacity: (dimmed ? 0.25 : 1) * 0.6, dashArray: '4 3' }}
+                            />
+                            <CircleMarker center={base.coords} radius={innerR}
+                                pathOptions={{ color: dimmed ? '#6b7280' : '#1c1917', fillColor: dimmed ? '#9ca3af' : bc, fillOpacity: dimmed ? 0.25 : 0.9, weight: 1.2 }}
+                            >
+                                {!dimmed && (
+                                    <Tooltip permanent direction="top" offset={[0, -innerR - 2]}>
+                                        <span style={{ fontSize: 8, fontWeight: 900, color: '#1c1917', background: 'rgba(254,252,232,0.97)', padding: '1px 5px', borderRadius: 2, border: `1px solid ${bc}`, letterSpacing: 0.3, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                                            {base.operatorFlag} {typeIcon[base.type as BaseType]} {base.shortName}
+                                        </span>
+                                    </Tooltip>
+                                )}
+                                <Popup minWidth={240} maxWidth={300}>
+                                    <div style={{ background: 'rgba(254,252,232,0.99)', color: '#1c1917', fontFamily: 'monospace', borderRadius: 4, overflow: 'hidden' }}>
+                                        <div style={{ background: bc, padding: '8px 12px' }}>
+                                            <div style={{ fontSize: 12, fontWeight: 900, color: '#fff', textTransform: 'uppercase' }}>{base.operatorFlag} {typeIcon[base.type as BaseType]} {base.shortName}</div>
+                                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.8)', marginTop: 1 }}>{base.operator} · {base.country} · {base.personnel} personnel</div>
+                                        </div>
+                                        {role && (
+                                            <div style={{ padding: '6px 12px', background: 'rgba(217,119,6,0.1)', borderBottom: '1px solid #d97706' }}>
+                                                <div style={{ fontSize: 9, fontWeight: 800, color: '#92400e', textTransform: 'uppercase', letterSpacing: 1 }}>Scenario Role</div>
+                                                <div style={{ fontSize: 10, fontWeight: 700, color: '#1c1917', marginTop: 2, lineHeight: 1.4 }}>{role}</div>
+                                            </div>
+                                        )}
+                                        <div style={{ padding: '6px 12px' }}>
+                                            <div style={{ fontSize: 9, fontWeight: 800, color: '#78350f', textTransform: 'uppercase', marginBottom: 3 }}>Key Assets</div>
+                                            {base.assets.slice(0, 5).map((a, i) => (
+                                                <div key={i} style={{ fontSize: 10, color: '#292524', marginBottom: 1 }}>
+                                                    <span style={{ color: bc, fontWeight: 700 }}>› </span>{a}
+                                                </div>
+                                            ))}
+                                            {base.assets.length > 5 && <div style={{ fontSize: 9, color: '#78350f', marginTop: 2 }}>+{base.assets.length - 5} more…</div>}
+                                        </div>
+                                        <div style={{ padding: '4px 12px 8px', borderTop: '1px solid #d97706' }}>
+                                            <div style={{ fontSize: 9, color: '#44403c', lineHeight: 1.4, fontStyle: 'italic' }}>{base.role}</div>
+                                        </div>
+                                    </div>
+                                </Popup>
+                            </CircleMarker>
+                        </React.Fragment>
+                    );
+                })}
 
                 {/* Alliance / Rivalry edges */}
                 {showAlliances && edges.map((edge, i) => {
@@ -261,8 +391,8 @@ export default function WorldMap() {
                             key={`edge-${i}`}
                             positions={[from, to]}
                             pathOptions={{
-                                color: edge.is_alliance ? 'rgba(63,185,80,0.12)' : 'rgba(248,81,73,0.08)',
-                                weight: Math.abs(edge.weight) * 1.5,
+                                color: edge.is_alliance ? 'rgba(22,101,52,0.25)' : 'rgba(185,28,28,0.18)',
+                                weight: Math.abs(edge.weight) * 2,
                                 dashArray: edge.is_alliance ? undefined : '6 4',
                             }}
                         />
@@ -286,7 +416,7 @@ export default function WorldMap() {
                                 }}
                             >
                                 <Tooltip sticky>
-                                    <span style={{ fontSize: 11, fontWeight: 600 }}>
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: '#1c1917', background: 'rgba(254,243,199,0.97)', padding: '3px 7px', borderRadius: 3, border: '1px solid #92400e', letterSpacing: 0.3 }}>
                                         {getTypeIcon(mov.type)} {mov.label}
                                     </span>
                                 </Tooltip>
@@ -314,8 +444,65 @@ export default function WorldMap() {
                                 pathOptions={{ color: '#fff', fillColor: cpColor, fillOpacity: 0.9, weight: 2 }}
                             >
                                 <Tooltip permanent direction="right" offset={[10, 0]}>
-                                    <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: 'rgba(0,0,0,0.75)', padding: '2px 5px', borderRadius: 3 }}>
+                                    <span style={{ fontSize: 9, fontWeight: 800, color: cp.intensity === 'high' ? '#7f1d1d' : '#78350f', background: 'rgba(254,252,232,0.95)', padding: '2px 6px', borderRadius: 2, border: `1px solid ${cp.intensity === 'high' ? '#b91c1c' : '#b45309'}`, letterSpacing: 0.5, textTransform: 'uppercase' }}>
                                         {cp.label}
+                                    </span>
+                                </Tooltip>
+                            </CircleMarker>
+                        </React.Fragment>
+                    );
+                })}
+
+                {/* === SCENARIO: Military Base Origin Markers === */}
+                {overlay?.bases.map((base, i) => {
+                    const baseColor =
+                        base.type === 'naval' ? '#1d4ed8' :
+                            base.type === 'air' ? '#0891b2' :
+                                base.type === 'missile' ? '#b45309' : '#15803d';
+                    const typeIcon =
+                        base.type === 'naval' ? '⚓' :
+                            base.type === 'air' ? '✈' :
+                                base.type === 'missile' ? '🚀' : '⬛';
+                    return (
+                        <React.Fragment key={`base-${i}`}>
+                            {/* Outer ring — identifies base zone */}
+                            <CircleMarker
+                                center={base.coords}
+                                radius={14}
+                                pathOptions={{
+                                    color: baseColor,
+                                    fillColor: baseColor,
+                                    fillOpacity: 0.08,
+                                    weight: 1.5,
+                                    opacity: 0.5,
+                                    dashArray: '4 3',
+                                }}
+                            />
+                            {/* Inner base dot */}
+                            <CircleMarker
+                                center={base.coords}
+                                radius={6}
+                                pathOptions={{
+                                    color: '#1c1917',
+                                    fillColor: baseColor,
+                                    fillOpacity: 0.95,
+                                    weight: 1.5,
+                                }}
+                            >
+                                <Tooltip permanent direction="top" offset={[0, -10]}>
+                                    <span style={{
+                                        fontSize: 9,
+                                        fontWeight: 800,
+                                        color: '#1c1917',
+                                        background: 'rgba(254,252,232,0.98)',
+                                        padding: '2px 6px',
+                                        borderRadius: 2,
+                                        border: `1px solid ${baseColor}`,
+                                        letterSpacing: 0.4,
+                                        fontFamily: 'monospace',
+                                        whiteSpace: 'nowrap',
+                                    }}>
+                                        {base.flag} {typeIcon} {base.label}
                                     </span>
                                 </Tooltip>
                             </CircleMarker>
@@ -384,9 +571,10 @@ export default function WorldMap() {
                             >
                                 <Tooltip permanent direction="bottom" offset={[0, 6]}>
                                     <div style={{
-                                        background: '#0d1117', color: 'white', padding: '1px 5px',
-                                        borderRadius: 3, fontSize: 9, fontWeight: 600, border: `1px solid ${borderColor}`,
-                                        fontFamily: 'Inter, sans-serif',
+                                        background: 'rgba(254,252,232,0.97)', color: '#1c1917', padding: '2px 6px',
+                                        borderRadius: 2, fontSize: 9, fontWeight: 800, border: `1px solid ${borderColor}`,
+                                        fontFamily: 'monospace', letterSpacing: 0.5, textTransform: 'uppercase',
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                                     }}>
                                         {country.name}
                                         {role && <span style={{ fontSize: 8, marginLeft: 3 }}>
@@ -395,25 +583,25 @@ export default function WorldMap() {
                                     </div>
                                 </Tooltip>
                                 <Popup>
-                                    <div style={{ background: '#0d1117', color: 'white', padding: 12, borderRadius: 8, minWidth: 200, fontFamily: 'Inter' }}>
-                                        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>{country.name}</div>
-                                        {role && <div style={{ fontSize: 10, fontWeight: 600, color: borderColor, padding: '2px 8px', background: `${borderColor}20`, borderRadius: 8, display: 'inline-block', marginBottom: 8 }}>{role}</div>}
+                                    <div style={{ background: 'rgba(254,252,232,0.99)', color: '#1c1917', padding: 12, borderRadius: 6, minWidth: 200, fontFamily: 'monospace', border: '2px solid #92400e', boxShadow: '0 4px 12px rgba(0,0,0,0.25)' }}>
+                                        <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1, borderBottom: '1px solid #d97706', paddingBottom: 4 }}>{country.name}</div>
+                                        {role && <div style={{ fontSize: 9, fontWeight: 800, color: borderColor, padding: '2px 8px', background: `${borderColor}20`, borderRadius: 8, display: 'inline-block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>{role}</div>}
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 11 }}>
                                             <div>
-                                                <div style={{ color: '#8b949e', fontSize: 9 }}>RISK ({selectedYear})</div>
-                                                <div style={{ fontWeight: 700, color: riskColor, fontFamily: 'JetBrains Mono' }}>{currentRisk?.toFixed(1)}%</div>
+                                                <div style={{ color: '#78350f', fontSize: 9, textTransform: 'uppercase', fontWeight: 700 }}>RISK ({selectedYear})</div>
+                                                <div style={{ fontWeight: 900, color: riskColor, fontFamily: 'monospace', fontSize: 14 }}>{currentRisk?.toFixed(1)}%</div>
                                             </div>
                                             {cascadeRisk !== undefined && <div>
-                                                <div style={{ color: '#8b949e', fontSize: 9 }}>CASCADE</div>
-                                                <div style={{ fontWeight: 700, color: '#f97316', fontFamily: 'JetBrains Mono' }}>{cascadeRisk}%</div>
+                                                <div style={{ color: '#78350f', fontSize: 9, textTransform: 'uppercase', fontWeight: 700 }}>CASCADE</div>
+                                                <div style={{ fontWeight: 900, color: '#b45309', fontFamily: 'monospace' }}>{cascadeRisk}%</div>
                                             </div>}
                                             <div>
-                                                <div style={{ color: '#8b949e', fontSize: 9 }}>BLOC</div>
-                                                <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{country.bloc}</div>
+                                                <div style={{ color: '#78350f', fontSize: 9, textTransform: 'uppercase', fontWeight: 700 }}>BLOC</div>
+                                                <div style={{ fontWeight: 700, textTransform: 'capitalize' }}>{country.bloc}</div>
                                             </div>
                                             <div>
-                                                <div style={{ color: '#8b949e', fontSize: 9 }}>NUCLEAR</div>
-                                                <div style={{ fontWeight: 600 }}>{country.nuclear ? '☢️ Yes' : 'No'}</div>
+                                                <div style={{ color: '#78350f', fontSize: 9, textTransform: 'uppercase', fontWeight: 700 }}>NUCLEAR</div>
+                                                <div style={{ fontWeight: 700 }}>{country.nuclear ? '☢️ YES' : 'NO'}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -448,56 +636,58 @@ export default function WorldMap() {
             {activeScenario && showFacts && (
                 <div style={{
                     position: 'absolute', top: 90, left: 16, zIndex: 1000,
-                    background: 'rgba(13,17,23,0.92)', backdropFilter: 'blur(12px)',
-                    border: '1px solid rgba(48,54,61,0.6)', borderRadius: 12,
+                    background: 'rgba(254,252,232,0.96)', backdropFilter: 'blur(8px)',
+                    border: '2px solid #b45309', borderRadius: 4,
                     padding: 14, width: 220, maxHeight: 'calc(100vh - 200px)', overflowY: 'auto',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+                    fontFamily: 'monospace',
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: '#8b949e', textTransform: 'uppercase', letterSpacing: 1 }}>
-                            Facts & Figures
+                        <span style={{ fontSize: 10, fontWeight: 900, color: '#92400e', textTransform: 'uppercase', letterSpacing: 2 }}>
+                            ▶ INTEL REPORT
                         </span>
-                        <button onClick={() => setShowFacts(false)} style={{ background: 'none', border: 'none', color: '#484f58', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                        <button onClick={() => setShowFacts(false)} style={{ background: 'none', border: 'none', color: '#b45309', cursor: 'pointer', fontSize: 14, fontWeight: 700 }}>✕</button>
                     </div>
                     <div style={{ display: 'grid', gap: 8 }}>
-                        <div style={{ background: '#161b22', borderRadius: 8, padding: 10, border: '1px solid #21262d' }}>
-                            <div style={{ fontSize: 9, color: '#8b949e', textTransform: 'uppercase' }}>Conflict Prob ({selectedYear})</div>
-                            <div style={{ fontSize: 22, fontWeight: 800, color: getRiskColor(adjustedProb), fontFamily: 'JetBrains Mono' }}>{adjustedProb}%</div>
-                            {yearMultiplier < 1 && <div style={{ fontSize: 9, color: '#484f58' }}>Base: {activeScenario.scenario.conflict_probability}% × {(yearMultiplier * 100).toFixed(0)}% year factor</div>}
+                        <div style={{ background: 'rgba(120,53,15,0.08)', borderRadius: 4, padding: 10, border: '1px solid #d97706' }}>
+                            <div style={{ fontSize: 9, color: '#92400e', textTransform: 'uppercase', fontWeight: 800, letterSpacing: 1 }}>Conflict Prob ({selectedYear})</div>
+                            <div style={{ fontSize: 22, fontWeight: 900, color: adjustedProb > 60 ? '#b91c1c' : adjustedProb > 30 ? '#b45309' : '#15803d', fontFamily: 'monospace' }}>{adjustedProb}%</div>
+                            {yearMultiplier < 1 && <div style={{ fontSize: 9, color: '#92400e' }}>Base: {activeScenario.scenario.conflict_probability}% × {(yearMultiplier * 100).toFixed(0)}% yr</div>}
                         </div>
-                        <div style={{ background: '#161b22', borderRadius: 8, padding: 10, border: '1px solid #21262d' }}>
-                            <div style={{ fontSize: 9, color: '#8b949e', textTransform: 'uppercase' }}>Primary Actors</div>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4 }}>
-                                <span style={{ color: '#ef4444' }}>⚔️ {activeScenario.scenario.primary.country_a}</span>
-                                <span style={{ color: '#484f58', margin: '0 6px' }}>vs</span>
-                                <span style={{ color: '#3b82f6' }}>🛡️ {activeScenario.scenario.primary.country_b}</span>
+                        <div style={{ background: 'rgba(120,53,15,0.08)', borderRadius: 4, padding: 10, border: '1px solid #d97706' }}>
+                            <div style={{ fontSize: 9, color: '#92400e', textTransform: 'uppercase', fontWeight: 800, letterSpacing: 1 }}>Primary Actors</div>
+                            <div style={{ fontSize: 12, fontWeight: 800, marginTop: 4, fontFamily: 'monospace' }}>
+                                <span style={{ color: '#b91c1c' }}>⚔ {activeScenario.scenario.primary.country_a}</span>
+                                <span style={{ color: '#92400e', margin: '0 6px' }}>vs</span>
+                                <span style={{ color: '#1d4ed8' }}>🛡 {activeScenario.scenario.primary.country_b}</span>
                             </div>
                         </div>
-                        <div style={{ background: '#161b22', borderRadius: 8, padding: 10, border: '1px solid #21262d' }}>
-                            <div style={{ fontSize: 9, color: '#8b949e', textTransform: 'uppercase', marginBottom: 6 }}>Alliance Cascade</div>
+                        <div style={{ background: 'rgba(120,53,15,0.08)', borderRadius: 4, padding: 10, border: '1px solid #d97706' }}>
+                            <div style={{ fontSize: 9, color: '#92400e', textTransform: 'uppercase', fontWeight: 800, letterSpacing: 1, marginBottom: 6 }}>Alliance Cascade</div>
                             {Object.entries(adjustedCascade)
                                 .sort(([, a], [, b]) => (b as number) - (a as number))
                                 .slice(0, 8)
                                 .map(([country, risk]) => (
                                     <div key={country} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                                        <div style={{ fontSize: 10, fontWeight: 600, width: 75, color: '#e6edf3' }}>{country}</div>
-                                        <div style={{ flex: 1, height: 4, background: '#21262d', borderRadius: 2, overflow: 'hidden' }}>
+                                        <div style={{ fontSize: 10, fontWeight: 700, width: 75, color: '#1c1917', fontFamily: 'monospace' }}>{country}</div>
+                                        <div style={{ flex: 1, height: 4, background: 'rgba(0,0,0,0.15)', borderRadius: 2, overflow: 'hidden' }}>
                                             <div style={{
                                                 width: `${Math.min(risk as number, 100)}%`, height: '100%',
                                                 background: getRiskColor(risk as number), borderRadius: 2,
                                             }} />
                                         </div>
-                                        <div style={{ fontSize: 9, fontWeight: 700, color: getRiskColor(risk as number), fontFamily: 'JetBrains Mono', width: 32, textAlign: 'right' }}>
+                                        <div style={{ fontSize: 9, fontWeight: 800, color: getRiskColor(risk as number), fontFamily: 'monospace', width: 32, textAlign: 'right' }}>
                                             {(risk as number).toFixed(0)}%
                                         </div>
                                     </div>
                                 ))}
                         </div>
-                        <div style={{ background: '#161b22', borderRadius: 8, padding: 10, border: '1px solid #21262d' }}>
-                            <div style={{ fontSize: 9, color: '#8b949e', textTransform: 'uppercase' }}>Nuclear States Involved</div>
+                        <div style={{ background: 'rgba(120,53,15,0.08)', borderRadius: 4, padding: 10, border: '1px solid #d97706' }}>
+                            <div style={{ fontSize: 9, color: '#92400e', textTransform: 'uppercase', fontWeight: 800 }}>☢ Nuclear States</div>
                             <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4 }}>
                                 {Object.keys(adjustedCascade).filter(c => ['USA', 'Russia', 'China', 'India', 'Pakistan', 'Israel', 'UK', 'France'].includes(c)).map(c => (
-                                    <span key={c} style={{ display: 'inline-block', fontSize: 9, background: '#21262d', padding: '1px 6px', borderRadius: 8, margin: '2px 2px', color: '#f97316' }}>
-                                        ☢️ {c}
+                                    <span key={c} style={{ display: 'inline-block', fontSize: 9, background: 'rgba(185,28,28,0.1)', padding: '1px 6px', borderRadius: 8, margin: '2px 2px', color: '#b91c1c', border: '1px solid rgba(185,28,28,0.3)', fontFamily: 'monospace', fontWeight: 700 }}>
+                                        ☢ {c}
                                     </span>
                                 ))}
                             </div>
@@ -508,25 +698,28 @@ export default function WorldMap() {
             {activeScenario && !showFacts && (
                 <button onClick={() => setShowFacts(true)} style={{
                     position: 'absolute', top: 90, left: 16, zIndex: 1000,
-                    background: 'rgba(13,17,23,0.85)', border: '1px solid #30363d', borderRadius: 8,
-                    color: '#8b949e', padding: '6px 12px', fontSize: 11, cursor: 'pointer',
-                }}>📊 Show Facts</button>
+                    background: 'rgba(254,252,232,0.95)', border: '2px solid #b45309', borderRadius: 4,
+                    color: '#92400e', padding: '6px 12px', fontSize: 11, cursor: 'pointer', fontFamily: 'monospace', fontWeight: 800,
+                }}>▶ INTEL REPORT</button>
             )}
 
             {/* Legend */}
             <div className="map-overlay-bottom">
-                <div className="map-legend">
-                    <div className="legend-item"><div className="legend-dot" style={{ background: '#ef4444' }} /><span>Attack</span></div>
-                    <div className="legend-item"><div className="legend-dot" style={{ background: '#3b82f6' }} /><span>Reinforce</span></div>
-                    <div className="legend-item"><div className="legend-dot" style={{ background: '#22c55e' }} /><span>Allied</span></div>
-                    <div className="legend-item"><div className="legend-dot" style={{ background: '#f97316' }} /><span>Cascade</span></div>
+                <div className="map-legend" style={{ background: 'rgba(254,252,232,0.95)', border: '2px solid #b45309', borderRadius: 4, fontFamily: 'monospace' }}>
+                    <div className="legend-item"><div className="legend-dot" style={{ background: '#dc2626' }} /><span style={{ color: '#1c1917', fontWeight: 700, fontSize: 10 }}>Attack</span></div>
+                    <div className="legend-item"><div className="legend-dot" style={{ background: '#1d4ed8' }} /><span style={{ color: '#1c1917', fontWeight: 700, fontSize: 10 }}>Reinforce</span></div>
+                    <div className="legend-item"><div className="legend-dot" style={{ background: '#15803d' }} /><span style={{ color: '#1c1917', fontWeight: 700, fontSize: 10 }}>Allied</span></div>
+                    <div className="legend-item"><div className="legend-dot" style={{ background: '#d97706' }} /><span style={{ color: '#1c1917', fontWeight: 700, fontSize: 10 }}>Cascade</span></div>
+                    <div className="legend-item"><div style={{ width: 10, height: 10, borderRadius: '50%', background: '#1d4ed8', border: '1.5px dashed #1c1917' }} /><span style={{ color: '#1c1917', fontWeight: 700, fontSize: 10 }}>⚓ Naval Base</span></div>
+                    <div className="legend-item"><div style={{ width: 10, height: 10, borderRadius: '50%', background: '#0891b2', border: '1.5px dashed #1c1917' }} /><span style={{ color: '#1c1917', fontWeight: 700, fontSize: 10 }}>✈ Air Base</span></div>
+                    <div className="legend-item"><div style={{ width: 10, height: 10, borderRadius: '50%', background: '#b45309', border: '1.5px dashed #1c1917' }} /><span style={{ color: '#1c1917', fontWeight: 700, fontSize: 10 }}>🚀 Missile Site</span></div>
                     <div className="legend-item" style={{ cursor: 'pointer' }} onClick={() => setShowAlliances(!showAlliances)}>
-                        <div className="legend-line" style={{ background: showAlliances ? '#3fb950' : '#484f58', width: 20, height: 2 }} />
-                        <span>{showAlliances ? 'Hide' : 'Show'} Alliances</span>
+                        <div className="legend-line" style={{ background: showAlliances ? '#15803d' : '#92400e', width: 20, height: 2 }} />
+                        <span style={{ color: '#1c1917', fontWeight: 700, fontSize: 10 }}>{showAlliances ? 'Hide' : 'Show'} Alliances</span>
                     </div>
                     <div className="legend-item" style={{ cursor: 'pointer' }} onClick={() => setShowHeatmap(!showHeatmap)}>
-                        <div style={{ width: 12, height: 12, borderRadius: '50%', background: showHeatmap ? 'rgba(239,68,68,0.4)' : '#484f58', border: `1px solid ${showHeatmap ? '#ef4444' : '#484f58'}` }} />
-                        <span>🌡️ {showHeatmap ? 'Hide' : 'Show'} Heatmap</span>
+                        <div style={{ width: 12, height: 12, borderRadius: '50%', background: showHeatmap ? 'rgba(185,28,28,0.4)' : '#92400e', border: `1px solid ${showHeatmap ? '#b91c1c' : '#92400e'}` }} />
+                        <span style={{ color: '#1c1917', fontWeight: 700, fontSize: 10 }}>{showHeatmap ? 'Hide' : 'Show'} Heatmap</span>
                     </div>
                 </div>
             </div>
