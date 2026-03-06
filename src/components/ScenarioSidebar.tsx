@@ -84,6 +84,7 @@ export default function ScenarioSidebar() {
     const {
         activeScenario, loadScenario, runCustomScenario,
         selectedYear, setSelectedYear, predictions, isLoading,
+        playerCountry, setPlayerCountry, setShowLoginModal
     } = useApp();
 
     const yearMultiplier = getYearMultiplier(selectedYear);
@@ -136,6 +137,78 @@ export default function ScenarioSidebar() {
                 <div className="model-badge">
                     <span className="pulse" />
                     PyTorch GNN+LSTM v3 — Live
+                </div>
+
+                {/* Login / Identity Section */}
+                <div style={{ marginTop: 16 }}>
+                    {playerCountry ? (
+                        <div style={{
+                            background: 'rgba(239, 68, 68, 0.05)',
+                            border: '1px solid rgba(239, 68, 68, 0.2)',
+                            borderRadius: 10,
+                            padding: '12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 8
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Active Command</span>
+                                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', boxShadow: '0 0 8px #ef4444' }} />
+                            </div>
+                            <div style={{ fontSize: 15, fontWeight: 900, color: '#e6edf3', letterSpacing: 0.5 }}>{playerCountry.toUpperCase()}</div>
+                            <button
+                                onClick={() => setPlayerCountry(null)}
+                                style={{
+                                    marginTop: 4,
+                                    width: '100%',
+                                    padding: '6px 0',
+                                    borderRadius: 6,
+                                    background: 'rgba(239, 68, 68, 0.1)',
+                                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                                    color: '#ef4444',
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    textTransform: 'uppercase',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Terminate Session
+                            </button>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => setShowLoginModal(true)}
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                borderRadius: 10,
+                                background: 'linear-gradient(135deg, rgba(88, 166, 255, 0.15), rgba(188, 140, 255, 0.15))',
+                                border: '1px solid rgba(88, 166, 255, 0.3)',
+                                color: '#58a6ff',
+                                fontSize: 12,
+                                fontWeight: 800,
+                                textTransform: 'uppercase',
+                                letterSpacing: 1,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 8,
+                                transition: 'all 0.2s'
+                            }}
+                            onMouseOver={(e) => {
+                                e.currentTarget.style.background = 'linear-gradient(135deg, rgba(88, 166, 255, 0.25), rgba(188, 140, 255, 0.25))';
+                                e.currentTarget.style.borderColor = 'rgba(88, 166, 255, 0.5)';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.background = 'linear-gradient(135deg, rgba(88, 166, 255, 0.15), rgba(188, 140, 255, 0.15))';
+                                e.currentTarget.style.borderColor = 'rgba(88, 166, 255, 0.3)';
+                            }}
+                        >
+                            <Shield size={14} />
+                            Initialize Command
+                        </button>
+                    )}
                 </div>
             </div>
 

@@ -16,6 +16,8 @@ from itertools import combinations
 import json
 import uvicorn
 import os
+import pickle
+from wargame_engine import predict_scenario
 
 # ============================================================
 # DEVICE SETUP
@@ -604,6 +606,26 @@ model, X_tensor, adj_tensor, adj_matrix, pair_indices, pair_meta, scaler = train
 all_predictions = get_predictions(model, X_tensor, adj_tensor, pair_indices, pair_meta)
 all_country_risks = get_country_risks(model, X_tensor)
 
+# LOAD WARGAME MODELS
+wargame_models, wargame_scaler, wargame_encoders = None, None, None
+try:
+    load_path = os.path.join(os.path.dirname(__file__), 'wargame_models')
+    with open(f'{load_path}/models.pkl', 'rb') as f:
+        wargame_models = pickle.load(f)
+    with open(f'{load_path}/scaler.pkl', 'rb') as f:
+        wargame_scaler = pickle.load(f)
+    with open(f'{load_path}/encoders.pkl', 'rb') as f:
+        wargame_encoders = pickle.load(f)
+    print("✅ Wargame ML Engine models loaded successfully")
+except Exception as e:
+    print(f"⚠️ Could not load Wargame ML models: {e}")
+
+try:
+    with open(os.path.join(os.path.dirname(__file__), 'bases.json'), 'r') as f:
+        DYNAMIC_BASES = json.load(f)
+except:
+    DYNAMIC_BASES = []
+
 print(f"✅ Server ready — {len(all_predictions)} pair predictions loaded")
 print(f"   Top 5 conflict pairs:")
 sorted_preds = sorted(all_predictions.items(), key=lambda x: -x[1])[:5]
@@ -635,6 +657,44 @@ class ScenarioRequest(BaseModel):
     scenario_id: str
     year: Optional[int] = 2027
 
+
+class WargameSimulationRequest(BaseModel):
+    scenario: str
+    air_force_readiness: int = 75
+    army_readiness: int = 85
+    navy_readiness: int = 60
+    missile_readiness: int = 70
+    intel_grade: int = 65
+    cyber_capability: int = 55
+    logistics_score: int = 80
+    adversary_air_power: int = 65
+    adversary_ground_power: int = 70
+    adversary_naval_power: int = 45
+    adversary_missile_power: int = 60
+    adversary_nuclear_posture: int = 55
+    terrain_advantage: float = 0.3
+    distance_to_objectives: float = 0.4
+    supply_line_security: int = 75
+    us_support_level: int = 60
+    russia_support_level: int = 55
+    china_involvement: int = 20
+    un_pressure: int = 50
+    escalation_posture: int = 1
+    surprise_factor: int = 60
+    time_of_year: int = 5
+    international_crisis_index: int = 60
+    doctrine_id: int = 0
+    player_country: str
+    adversary_country: str
+    active_bases: list[str] = []
+
+
+class BaseCreateRequest(BaseModel):
+    id: str
+    name: str
+    country: str
+    operator: str
+    type: str
 
 @app.get("/")
 def root():
@@ -786,6 +846,49 @@ def get_country_detail(country_name: str):
             if country_name in k
         }
     }
+
+
+@app.post("/simulate-campaign")
+def simulate_campaign(req: WargameSimulationRequest):
+    """Run interactive wargame ML simulation based on Player choices."""
+    if not wargame_models:
+        return {"error": "Wargame models not loaded. Please run wargame_engine.py first."}
+        
+    config_dict = req.dict()
+    # ML Engine processes dict
+    result = predict_scenario(wargame_models, wargame_scaler, wargame_encoders, config_dict)
+    
+    # Enrich the result for frontend specifically
+    result['player_country'] = req.player_country
+    result['adversary_country'] = req.adversary_country
+    result['bases_used'] = req.active_bases
+    
+    return clean(result)
+
+
+@app.get("/bases")
+def get_custom_bases():
+    """Retrieve all dynamic bases (custom added/edited)."""
+    return {"bases": DYNAMIC_BASES}
+
+
+@app.post("/bases")
+def add_custom_base(req: BaseCreateRequest):
+    """Create or edit a custom base and reload AI mappings."""
+    # In a real persistence layer, we'd save to DB or JSON
+    # For now we'll append to the local JSON file.
+    base_id = req.id
+    if base_id not in DYNAMIC_BASES:
+        DYNAMIC_BASES.append(base_id)
+        # Append to bases.json
+        try:
+            bases_path = os.path.join(os.path.dirname(__file__), 'bases.json')
+            with open(bases_path, 'w') as f:
+                json.dump(DYNAMIC_BASES, f, indent=2)
+        except Exception as e:
+            return {"error": str(e)}
+            
+    return {"status": "success", "base_id": base_id, "total_bases": len(DYNAMIC_BASES)}
 
 
 if __name__ == "__main__":

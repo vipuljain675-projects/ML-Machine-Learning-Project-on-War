@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, Tooltip, useMap, ZoomControl } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, Tooltip, useMap, useMapEvents, ZoomControl } from 'react-leaflet';
 import { useApp } from '../context/AppContext';
 import L from 'leaflet';
 import MapSearchBar from './MapSearchBar';
 import { GLOBAL_MILITARY_BASES, BaseType } from '../data/militaryBases';
+import CampaignBuilder from './CampaignBuilder';
+import BaseEditorModal from './BaseEditorModal';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -252,15 +254,26 @@ function MapUpdater({ center, zoom }: { center: [number, number]; zoom: number }
     return null;
 }
 
+function MapEventCatcher({ onRightClick }: { onRightClick: (coords: [number, number]) => void }) {
+    useMapEvents({
+        contextmenu: (e) => {
+            onRightClick([e.latlng.lat, e.latlng.lng]);
+        }
+    });
+    return null;
+}
+
 // ============================================================
 // MAIN WORLD MAP COMPONENT
 // ============================================================
 export default function WorldMap() {
-    const { countries, edges, activeScenario, risks, selectedYear } = useApp();
+    const { countries, edges, activeScenario, risks, selectedYear, playerCountry, campaignPlan, setCampaignPlan, customBases, setCustomBases, intelRevealed } = useApp();
     const [showAlliances, setShowAlliances] = useState(true);
     const [showFacts, setShowFacts] = useState(true);
     const [showHeatmap, setShowHeatmap] = useState(true);
     const [showGlobalBases, setShowGlobalBases] = useState(true);
+
+    const [editorCoords, setEditorCoords] = useState<[number, number] | null>(null);
 
     const yearIdx = Math.min(Math.max(selectedYear - 2025, 0), 15);
     const yearMultiplier = getYearMultiplier(selectedYear);
@@ -288,8 +301,62 @@ export default function WorldMap() {
         ? Math.round(activeScenario.scenario.conflict_probability * yearMultiplier * 10) / 10
         : 0;
 
+    const handleBaseClick = (base: any) => {
+        if (!playerCountry) return; // Must be logged in
+        if (base.country !== playerCountry) return; // Can only deploy from own bases
+
+        const isSelected = campaignPlan.activeBases.includes(base.id);
+        const newBases = isSelected
+            ? campaignPlan.activeBases.filter(id => id !== base.id)
+            : [...campaignPlan.activeBases, base.id];
+
+        setCampaignPlan({ ...campaignPlan, activeBases: newBases });
+    };
+
+    const handleMapRightClick = (coords: [number, number]) => {
+        if (!playerCountry) return;
+        // Set target IF they have bases selected, else open Base Editor
+        if (campaignPlan.activeBases.length > 0) {
+            setCampaignPlan({ ...campaignPlan, target: coords });
+        } else {
+            setEditorCoords(coords);
+        }
+    };
+
+    // Combine hardcoded + dynamic custom bases
+    const allBases = useMemo(() => {
+        const extra = customBases.map(cb => ({
+            ...cb,
+            coords: [cb.lat, cb.lng] as [number, number],
+            shortName: cb.name, // quick adapt
+            operatorFlag: '🏴', // fallback flag
+            scenarioRoles: {},
+            role: 'Player Custom Facility',
+            assets: cb.assets || []
+        }));
+
+        const combined = [...GLOBAL_MILITARY_BASES, ...extra];
+
+        // FOG OF WAR LOGIC
+        if (!playerCountry) {
+            return combined; // Observer mode: see everything
+        } else {
+            // Logged in: only see own bases OR revealed countries
+            return combined.filter(b => b.country === playerCountry || intelRevealed.includes(b.country));
+        }
+    }, [customBases, playerCountry, intelRevealed]);
+
     return (
-        <div className="map-container">
+        <div className="map-container relative">
+            <CampaignBuilder />
+            {editorCoords && (
+                <BaseEditorModal
+                    coords={editorCoords}
+                    onClose={() => setEditorCoords(null)}
+                    onSave={(b) => setCustomBases([...customBases, b])}
+                />
+            )}
+
             <MapContainer
                 center={[25, 60]}
                 zoom={3}
@@ -317,14 +384,16 @@ export default function WorldMap() {
 
                 {/* === GOOGLE MAPS-STYLE SEARCH BAR === */}
                 <MapSearchBar />
+                <MapEventCatcher onRightClick={handleMapRightClick} />
 
                 {/* === GLOBAL MILITARY BASES (all nations, always shown) === */}
-                {showGlobalBases && GLOBAL_MILITARY_BASES.map((base) => {
+                {showGlobalBases && allBases.map((base) => {
                     const scenarioId = activeScenario?.scenario?.id as keyof typeof base.scenarioRoles | undefined;
-                    const role = scenarioId ? base.scenarioRoles[scenarioId] : null;
+                    const role = scenarioId && base.scenarioRoles ? base.scenarioRoles[scenarioId] : null;
                     const baseTypeColor: Record<BaseType, string> = {
                         naval: '#1d4ed8', air: '#0891b2', army: '#15803d',
                         missile: '#b45309', drone: '#7c3aed', hq: '#b91c1c',
+                        space: '#4c1d95', submarine: '#0f766e', nuclear: '#be123c'
                     };
                     const bc = baseTypeColor[base.type as BaseType] || '#374151';
                     const dimmed = !!activeScenario && !role;
@@ -334,14 +403,31 @@ export default function WorldMap() {
                     const innerR = dimmed ? 3 : isCritical ? 7 : isActive ? 6 : 4;
                     const typeIcon: Record<BaseType, string> = {
                         naval: '⚓', air: '✈', army: '⬛', missile: '🚀', drone: '🛸', hq: '★',
+                        space: '🛰', submarine: '🌊', nuclear: '☢'
                     };
                     return (
                         <React.Fragment key={base.id}>
-                            <CircleMarker center={base.coords} radius={ringR}
+                            <CircleMarker center={base.coords as [number, number]} radius={ringR}
                                 pathOptions={{ color: bc, fillColor: bc, fillOpacity: dimmed ? 0.03 : 0.07, weight: isCritical ? 2 : 1.5, opacity: (dimmed ? 0.25 : 1) * 0.6, dashArray: '4 3' }}
                             />
-                            <CircleMarker center={base.coords} radius={innerR}
-                                pathOptions={{ color: dimmed ? '#6b7280' : '#1c1917', fillColor: dimmed ? '#9ca3af' : bc, fillOpacity: dimmed ? 0.25 : 0.9, weight: 1.2 }}
+
+                            {/* Player Selection Indicator */}
+                            {campaignPlan.activeBases.includes(base.id) && (
+                                <CircleMarker center={base.coords as [number, number]} radius={ringR + 5}
+                                    pathOptions={{ color: '#ef4444', fillColor: 'transparent', weight: 3, dashArray: '5 5' }}
+                                />
+                            )}
+
+                            <CircleMarker center={base.coords as [number, number]} radius={innerR}
+                                eventHandlers={{
+                                    click: () => handleBaseClick(base)
+                                }}
+                                pathOptions={{
+                                    color: dimmed ? '#6b7280' : '#1c1917',
+                                    fillColor: campaignPlan.activeBases.includes(base.id) ? '#ef4444' : dimmed ? '#9ca3af' : bc,
+                                    fillOpacity: dimmed ? 0.25 : 0.9,
+                                    weight: 1.2
+                                }}
                             >
                                 {!dimmed && (
                                     <Tooltip permanent direction="top" offset={[0, -innerR - 2]}>
@@ -364,12 +450,12 @@ export default function WorldMap() {
                                         )}
                                         <div style={{ padding: '6px 12px' }}>
                                             <div style={{ fontSize: 9, fontWeight: 800, color: '#78350f', textTransform: 'uppercase', marginBottom: 3 }}>Key Assets</div>
-                                            {base.assets.slice(0, 5).map((a, i) => (
+                                            {(base.assets || []).slice(0, 5).map((a: string, i: number) => (
                                                 <div key={i} style={{ fontSize: 10, color: '#292524', marginBottom: 1 }}>
                                                     <span style={{ color: bc, fontWeight: 700 }}>› </span>{a}
                                                 </div>
                                             ))}
-                                            {base.assets.length > 5 && <div style={{ fontSize: 9, color: '#78350f', marginTop: 2 }}>+{base.assets.length - 5} more…</div>}
+                                            {(base.assets || []).length > 5 && <div style={{ fontSize: 9, color: '#78350f', marginTop: 2 }}>+{(base.assets || []).length - 5} more…</div>}
                                         </div>
                                         <div style={{ padding: '4px 12px 8px', borderTop: '1px solid #d97706' }}>
                                             <div style={{ fontSize: 9, color: '#44403c', lineHeight: 1.4, fontStyle: 'italic' }}>{base.role}</div>
@@ -398,6 +484,26 @@ export default function WorldMap() {
                         />
                     );
                 })}
+
+                {/* === PLAYER CAMPAIGN MOVEMENTS === */}
+                {campaignPlan.target && campaignPlan.activeBases.map((baseId, i) => {
+                    const base = allBases.find(b => b.id === baseId);
+                    if (!base) return null;
+                    return (
+                        <React.Fragment key={`player-atk-${i}`}>
+                            <Polyline
+                                positions={[base.coords as [number, number], campaignPlan.target!]}
+                                pathOptions={{ color: '#ef4444', weight: 3, dashArray: '10 10', opacity: 0.8, lineCap: 'round' }}
+                            />
+                        </React.Fragment>
+                    );
+                })}
+
+                {campaignPlan.target && (
+                    <CircleMarker center={campaignPlan.target} radius={12}
+                        pathOptions={{ color: '#ef4444', fillColor: 'transparent', weight: 4, opacity: 1 }}
+                    />
+                )}
 
                 {/* === SCENARIO: Military Movement Arrows === */}
                 {overlay?.movements.map((mov, i) => {

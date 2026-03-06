@@ -80,6 +80,24 @@ interface AppState {
     sendChatMessage: (message: string) => Promise<void>;
     setBackendStatus: (status: 'connecting' | 'connected' | 'error') => void;
     initializeData: () => Promise<void>;
+
+    // Player State
+    playerCountry: string | null;
+    setPlayerCountry: (country: string | null) => void;
+    campaignPlan: { activeBases: string[], target: [number, number] | null };
+    setCampaignPlan: (plan: { activeBases: string[], target: [number, number] | null }) => void;
+    customBases: any[];
+    setCustomBases: (bases: any[]) => void;
+    simulationResults: any | null;
+    setSimulationResults: (results: any | null) => void;
+
+    // Fog of War & Login
+    intelRevealed: string[];
+    setIntelRevealed: (countries: string[]) => void;
+    playerName: string | null;
+    setPlayerName: (name: string | null) => void;
+    showLoginModal: boolean;
+    setShowLoginModal: (show: boolean) => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -102,6 +120,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = useState(false);
     const [isChatLoading, setIsChatLoading] = useState(false);
     const [backendStatus, setBackendStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
+
+    // Player State
+    const [playerCountry, setPlayerCountry] = useState<string | null>(null);
+    const [campaignPlan, setCampaignPlan] = useState<{ activeBases: string[], target: [number, number] | null }>({ activeBases: [], target: null });
+    const [customBases, setCustomBases] = useState<any[]>([]);
+    const [simulationResults, setSimulationResults] = useState<any | null>(null);
+    const [intelRevealed, setIntelRevealed] = useState<string[]>([]);
+    const [playerName, setPlayerName] = useState<string | null>(null);
+    const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
     const initializeData = useCallback(async () => {
         const to = (url: string) => {
@@ -360,10 +387,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             if (!res.ok) throw new Error('Chat API error');
 
             const data = await res.json();
+            let responseText = data.response;
+
+            // INTEL REVEAL INTERCEPTOR
+            const intelRegex = /\[REVEAL_INTEL:([^\]]+)\]/g;
+            let match;
+            const newReveals: string[] = [];
+            while ((match = intelRegex.exec(responseText)) !== null) {
+                newReveals.push(match[1].trim());
+            }
+            if (newReveals.length > 0) {
+                setIntelRevealed(prev => {
+                    const merged = [...new Set([...prev, ...newReveals])];
+                    return merged;
+                });
+                // Remove the tag from the AI's actual text response so it looks clean to the user
+                responseText = responseText.replace(/\[REVEAL_INTEL:[^\]]+\]/g, '').trim();
+            }
+
             const assistantMsg: ChatMessage = {
                 id: (Date.now() + 1).toString(),
                 role: 'assistant',
-                content: data.response,
+                content: responseText,
                 timestamp: new Date(),
             };
             setChatMessages(prev => [...prev, assistantMsg]);
@@ -387,6 +432,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             isLoading, isChatLoading, backendStatus,
             setSelectedYear, loadScenario, runCustomScenario, sendChatMessage,
             setBackendStatus, initializeData,
+            playerCountry, setPlayerCountry,
+            campaignPlan, setCampaignPlan,
+            customBases, setCustomBases,
+            simulationResults, setSimulationResults,
+            intelRevealed, setIntelRevealed,
+            playerName, setPlayerName,
+            showLoginModal, setShowLoginModal,
         }}>
             {children}
         </AppContext.Provider>

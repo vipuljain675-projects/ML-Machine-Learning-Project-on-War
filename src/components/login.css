@@ -1,0 +1,313 @@
+/* === SECURE COMMAND NEXUS (LOGIN MODAL) === */
+.nexus-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #020202 !important;
+    font-family: 'JetBrains Mono', monospace;
+    overflow: hidden;
+}
+
+.nexus-bg-glow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 800px;
+    height: 800px;
+    background: radial-gradient(circle, rgba(88, 166, 255, 0.1) 0%, transparent 70%);
+    filter: blur(80px);
+    pointer-events: none;
+}
+
+.nexus-card {
+    position: relative;
+    width: 100%;
+    max-width: 960px;
+    height: min(90vh, 760px);
+    background: rgba(10, 10, 10, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 0 100px rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(40px);
+    overflow: hidden;
+}
+
+.nexus-header {
+    padding: 32px 40px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.02), transparent);
+}
+
+.nexus-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.nexus-badge-icon {
+    padding: 6px;
+    background: rgba(88, 166, 255, 0.1);
+    border: 1px solid rgba(88, 166, 255, 0.2);
+    border-radius: 8px;
+    color: #58a6ff;
+}
+
+.nexus-badge-text {
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #58a6ff;
+}
+
+.nexus-title {
+    font-size: 36px;
+    font-weight: 900;
+    color: white;
+    text-transform: uppercase;
+    letter-spacing: -0.02em;
+    margin: 0;
+}
+
+.nexus-title span {
+    opacity: 0.3;
+}
+
+.nexus-content {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 320px 1fr !important;
+    gap: 40px !important;
+    padding: 40px !important;
+    overflow-y: auto;
+}
+
+.nexus-section-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.nexus-section-label-text {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.nexus-input-wrapper {
+    position: relative;
+}
+
+.nexus-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 16px;
+    color: white;
+    font-size: 14px;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.nexus-input:focus {
+    border-color: rgba(88, 166, 255, 0.5);
+    background: rgba(88, 166, 255, 0.05);
+}
+
+.nexus-input-tag {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.nexus-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 12px !important;
+}
+
+.nexus-country-btn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    padding: 16px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.3s;
+    position: relative;
+    width: 100%;
+}
+
+.nexus-country-btn:hover {
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.nexus-country-btn.active {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.nexus-country-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.nexus-flag {
+    font-size: 24px;
+}
+
+.nexus-country-name {
+    font-size: 14px;
+    font-weight: 900;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.nexus-country-role {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 0.1em;
+}
+
+.nexus-country-desc {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+    line-height: 1.4;
+}
+
+.nexus-footer {
+    padding: 32px 40px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.01);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.nexus-btn-primary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 32px;
+    background: #58a6ff;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-weight: 900;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.nexus-btn-primary:hover:not(:disabled) {
+    background: #4a95ef;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(88, 166, 255, 0.3);
+}
+
+.nexus-btn-primary:disabled {
+    opacity: 0.2;
+    cursor: not-allowed;
+}
+
+.nexus-auth-screen {
+    text-align: center;
+    width: 100%;
+}
+
+.nexus-spinner {
+    width: 64px;
+    height: 64px;
+    border: 3px solid rgba(88, 166, 255, 0.1);
+    border-top-color: #58a6ff;
+    border-radius: 50%;
+    margin: 0 auto 32px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.nexus-progress-bar {
+    width: 280px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    margin: 24px auto;
+    overflow: hidden;
+}
+
+.nexus-progress-fill {
+    height: 100%;
+    background: #58a6ff;
+    box-shadow: 0 0 15px #58a6ff;
+}
+
+.nexus-status-text {
+    font-size: 10px;
+    color: #58a6ff;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+}
+
+.nexus-brief-box {
+    padding: 24px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    margin-top: 32px;
+}
+
+.nexus-brief-title {
+    font-size: 10px;
+    font-weight: 800;
+    color: #58a6ff;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    margin-bottom: 12px;
+}
+
+.nexus-brief-text {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    line-height: 1.6;
+}
+
+.nexus-close-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 10px;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.nexus-close-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}

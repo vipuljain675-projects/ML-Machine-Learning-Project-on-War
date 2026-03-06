@@ -5,11 +5,13 @@ import { AppProvider, useApp } from '../context/AppContext';
 import dynamic from 'next/dynamic';
 import ScenarioSidebar from '../components/ScenarioSidebar';
 import ChatPanel from '../components/ChatPanel';
+import LoginModal from '../components/LoginModal';
+import AdvisorPanel from '../components/AdvisorPanel';
 
 const WorldMap = dynamic(() => import('../components/WorldMap'), { ssr: false });
 
 function AppContent() {
-  const { backendStatus, initializeData } = useApp();
+  const { backendStatus, initializeData, playerCountry, setPlayerCountry, showLoginModal, setShowLoginModal } = useApp();
 
   useEffect(() => {
     initializeData();
@@ -52,11 +54,16 @@ function AppContent() {
   }
 
   return (
-    <div className="app-container">
-      <ScenarioSidebar />
-      <WorldMap />
-      <ChatPanel />
-    </div>
+    <>
+      {showLoginModal && <LoginModal />}
+
+      <div className="app-container">
+        <ScenarioSidebar />
+        <WorldMap />
+        <AdvisorPanel />
+        <ChatPanel />
+      </div>
+    </>
   );
 }
 
