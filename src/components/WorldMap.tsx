@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, Tooltip, useMap, useMapEvents, ZoomControl } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Circle, Polyline, Popup, Tooltip, useMap, useMapEvents, ZoomControl } from 'react-leaflet';
 import { useApp } from '../context/AppContext';
 import L from 'leaflet';
 import MapSearchBar from './MapSearchBar';
@@ -286,7 +286,8 @@ export default function WorldMap() {
         playerCountry, campaignPlan, setCampaignPlan,
         customBases, setCustomBases, intelRevealed,
         destroyedBases, strikeOrigin, setStrikeOrigin, showCommandDashboard,
-        mapCenter, setMapCenter, mapZoom, setMapZoom
+        mapCenter, setMapCenter, mapZoom, setMapZoom,
+        defenceZones, toggleDefenceZone
     } = useApp();
     const [showAlliances, setShowAlliances] = useState(true);
     const [showFacts, setShowFacts] = useState(true);
@@ -294,7 +295,7 @@ export default function WorldMap() {
     const [showGlobalBases, setShowGlobalBases] = useState(true);
 
     const [editorCoords, setEditorCoords] = useState<[number, number] | null>(null);
-    const [editorBase, setEditorBase] = useState<any>(null);
+    const [editorBase, setEditorBase] = useState<CountryBase | null>(null);
 
     const yearIdx = Math.min(Math.max(selectedYear - 2025, 0), 15);
     const yearMultiplier = getYearMultiplier(selectedYear);
@@ -316,7 +317,7 @@ export default function WorldMap() {
         ? Math.round(activeScenario.scenario.conflict_probability * yearMultiplier * 10) / 10
         : 0;
 
-    const handleBaseClick = (base: any) => {
+    const handleBaseClick = (base: CountryBase) => {
         // Nothing special on base marker click itself, actions are in popup
     };
 
@@ -543,12 +544,31 @@ export default function WorldMap() {
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
                                                     {base.country === playerCountry ? (
                                                         <div style={{ display: 'flex', gap: 8 }}>
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); handleStrikeClick(base.id); }}
-                                                                style={{ flex: 1, padding: '8px', background: isStrikeOrigin ? '#ef4444' : 'rgba(239, 68, 68, 0.15)', border: `1px solid ${isStrikeOrigin ? '#ef4444' : 'rgba(239, 68, 68, 0.3)'}`, color: isStrikeOrigin ? '#fff' : '#ef4444', borderRadius: 6, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s' }}
-                                                            >
-                                                                {isStrikeOrigin ? 'Targeting...' : 'Strike From Here'}
-                                                            </button>
+                                                            {(() => {
+                                                                const isAirDefence = (base.type === 'missile') && (base.shortName.toLowerCase().includes('s-400') || (base.strength?.missiles || []).some((m: string) => m.toLowerCase().includes('s-400')));
+                                                                if (isAirDefence) {
+                                                                    const active = defenceZones.some(z => z.id.startsWith(`${base.id}:`) || z.id === base.id);
+                                                                    const m = (base.strength?.missiles || []).find((v: string) => /\b(\d{2,4})km\b/i.test(v));
+                                                                    const match = m ? m.match(/\b(\d{2,4})km\b/i) : null;
+                                                                    const rangeKm = match ? Math.min(Math.max(parseInt(match[1], 10), 50), 600) : 400;
+                                                                    return (
+                                                                        <button
+                                                                            onClick={(e) => { e.stopPropagation(); toggleDefenceZone(base.id, rangeKm, 'S-400 Shield'); }}
+                                                                            style={{ flex: 1, padding: '8px', background: active ? 'rgba(34,197,94,0.2)' : 'rgba(88,166,255,0.12)', border: `1px solid ${active ? 'rgba(34,197,94,0.5)' : 'rgba(88,166,255,0.35)'}`, color: active ? '#22c55e' : '#58a6ff', borderRadius: 6, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', cursor: 'pointer' }}
+                                                                        >
+                                                                            {active ? 'Deactivate Shield' : 'Activate Shield'}
+                                                                        </button>
+                                                                    );
+                                                                }
+                                                                return (
+                                                                    <button
+                                                                        onClick={(e) => { e.stopPropagation(); handleStrikeClick(base.id); }}
+                                                                        style={{ flex: 1, padding: '8px', background: isStrikeOrigin ? '#ef4444' : 'rgba(239, 68, 68, 0.15)', border: `1px solid ${isStrikeOrigin ? '#ef4444' : 'rgba(239, 68, 68, 0.3)'}`, color: isStrikeOrigin ? '#fff' : '#ef4444', borderRadius: 6, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s' }}
+                                                                    >
+                                                                        {isStrikeOrigin ? 'Targeting...' : 'Strike From Here'}
+                                                                    </button>
+                                                                );
+                                                            })()}
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); setEditorCoords(base.coords as [number, number]); setEditorBase(base); }}
                                                                 style={{ padding: '8px 12px', background: 'rgba(88, 166, 255, 0.1)', border: '1px solid rgba(88, 166, 255, 0.3)', color: '#58a6ff', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
@@ -573,6 +593,22 @@ export default function WorldMap() {
                         </React.Fragment>
                     );
                 })}
+
+                {/* === AIR DEFENCE ZONES === */}
+                {defenceZones.map((z, i) => (
+                    <Circle
+                        key={`adz-${z.id}-${i}`}
+                        center={z.coords}
+                        radius={z.radiusKm * 1000}
+                        pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.08, weight: 1.5, opacity: 0.6, dashArray: '6 4' }}
+                    >
+                        <Tooltip permanent direction="top" offset={[0, -6]}>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: '#065f46', background: 'rgba(236,253,245,0.98)', padding: '2px 6px', borderRadius: 3, border: '1px solid #10b981', letterSpacing: 0.4 }}>
+                                🛡️ {z.label} — {z.radiusKm}km
+                            </span>
+                        </Tooltip>
+                    </Circle>
+                ))}
 
                 {/* Alliance / Rivalry edges */}
                 {showAlliances && edges.map((edge, i) => {

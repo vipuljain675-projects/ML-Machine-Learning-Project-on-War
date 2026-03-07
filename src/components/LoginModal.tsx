@@ -19,7 +19,7 @@ const FACTIONS = [
 ];
 
 export default function LoginModal() {
-    const { setPlayerCountry, setPlayerName, setShowLoginModal } = useApp();
+    const { setPlayerCountry, setPlayerName, setShowLoginModal, setShowCommandDashboard, sendChatMessage } = useApp();
     const [idInput, setIdInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const [showPassword, setShowPassword] = useState(false);
@@ -49,6 +49,13 @@ export default function LoginModal() {
                         setPlayerCountry(selectedCountry);
                         setPlayerName(idInput.trim());
                         setShowLoginModal(false);
+                        setShowCommandDashboard(true);
+                        // Initial strategic briefing for the commander with intel reveal
+                        sendChatMessage(`As the head of ${selectedCountry}, provide a concise strategic onboarding briefing:
+- Immediate threats and priorities
+- Key bases and force disposition
+- Recommended first steps
+[REVEAL_INTEL:${selectedCountry}]`);
                     }, 500);
                     return 100;
                 }

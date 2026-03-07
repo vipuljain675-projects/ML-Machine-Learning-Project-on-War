@@ -73,6 +73,13 @@ export interface OpponentAction {
 
 export type ScenarioPhase = 'inactive' | 'setup' | 'active' | 'escalated' | 'nuclear' | 'ceasefire';
 
+export interface DefenceZone {
+    id: string;
+    coords: [number, number];
+    radiusKm: number;
+    label: string;
+}
+
 interface AppState {
     // Data from model
     countries: Country[];
@@ -138,11 +145,17 @@ interface AppState {
     setMapCenter: (c: [number, number]) => void;
     mapZoom: number;
     setMapZoom: (z: number) => void;
+
+    // Air Defence
+    defenceZones: DefenceZone[];
+    activateDefenceZone: (baseId: string, radiusKm?: number, label?: string) => void;
+    deactivateDefenceZone: (baseId: string) => void;
+    toggleDefenceZone: (baseId: string, radiusKm?: number, label?: string) => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
 
 const SCENARIO_MAP_DATA: Record<string, { center: [number, number]; zoom: number }> = {
     china_taiwan: { center: [24, 121], zoom: 6 },
@@ -151,6 +164,33 @@ const SCENARIO_MAP_DATA: Record<string, { center: [number, number]; zoom: number
     russia_nato: { center: [55, 37], zoom: 4 },
     china_india: { center: [33, 80], zoom: 5 },
 };
+
+const AD_LAYOUTS: Array<{ baseId: string; label: string; radiusKm: number }> = [
+    { baseId: 'in-missile-s400', label: 'S-400', radiusKm: 400 },
+    { baseId: 'in-af-ambala', label: 'Akash', radiusKm: 70 },
+    { baseId: 'in-af-adampur', label: 'Spyder', radiusKm: 35 },
+    { baseId: 'in-af-halwara', label: 'Akash', radiusKm: 70 },
+    { baseId: 'in-af-pathankot', label: 'Spyder', radiusKm: 35 },
+    { baseId: 'in-af-srinagar', label: 'Spyder', radiusKm: 35 },
+    { baseId: 'in-af-jodhpur', label: 'Akash', radiusKm: 70 },
+    { baseId: 'in-af-hasimara', label: 'S-400', radiusKm: 400 },
+    { baseId: 'in-navy-mumbai', label: 'Barak-8', radiusKm: 150 },
+    { baseId: 'in-navy-vizag', label: 'Barak-8', radiusKm: 150 },
+    { baseId: 'pk-af-sargodha', label: 'HQ-9', radiusKm: 200 },
+    { baseId: 'pk-af-masroor', label: 'HQ-9', radiusKm: 200 },
+    { baseId: 'pk-af-rafiqui', label: 'LY-80', radiusKm: 40 },
+    { baseId: 'pk-af-bholari', label: 'LY-80', radiusKm: 40 },
+    { baseId: 'pk-af-faisal', label: 'FM-90', radiusKm: 15 },
+    { baseId: 'pk-af-nurkhan', label: 'FM-90', radiusKm: 15 },
+    { baseId: 'il-missile-hq', label: 'Iron Dome', radiusKm: 70 },
+    { baseId: 'il-missile-hq', label: 'David\'s Sling', radiusKm: 200 },
+    { baseId: 'il-missile-hq', label: 'Arrow-3', radiusKm: 200 },
+    { baseId: 'us-af-andersen', label: 'THAAD', radiusKm: 200 },
+    { baseId: 'us-af-kadena', label: 'Patriot', radiusKm: 100 },
+    { baseId: 'us-af-ramstein', label: 'Patriot', radiusKm: 100 },
+    { baseId: 'us-naval-yokosuka', label: 'Aegis', radiusKm: 150 },
+    { baseId: 'ir-missile-irgc', label: 'S-300', radiusKm: 200 },
+];
 
 // ============================================================
 // PROVIDER
@@ -190,9 +230,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Map Navigation State
     const [mapCenter, setMapCenter] = useState<[number, number]>([25, 60]);
     const [mapZoom, setMapZoom] = useState<number>(3);
+    const [defenceZones, setDefenceZones] = useState<DefenceZone[]>([]);
 
     const destroyBase = useCallback((baseId: string) => {
         setDestroyedBases(prev => [...new Set([...prev, baseId])]);
+    }, []);
+
+    const activateDefenceZone = useCallback((baseId: string, radiusKm = 400, label = 'Air Defence') => {
+        const detailedBases = Object.values(COUNTRY_BASES).flat();
+        const allBases = [...detailedBases, ...GLOBAL_MILITARY_BASES];
+        const base = allBases.find(b => b.id === baseId);
+        if (!base) return;
+        setDefenceZones(prev => {
+            const zId = `${baseId}:${label}`;
+            if (prev.some(z => z.id === zId)) return prev;
+            return [...prev, { id: zId, coords: base.coords as [number, number], radiusKm, label }];
+        });
+    }, []);
+
+    const deactivateDefenceZone = useCallback((baseId: string) => {
+        setDefenceZones(prev => prev.filter(z => !(z.id.startsWith(`${baseId}:`) || z.id === baseId)));
+    }, []);
+
+    const toggleDefenceZone = useCallback((baseId: string, radiusKm = 400, label = 'Air Defence') => {
+        setDefenceZones(prev => {
+            const zId = `${baseId}:${label}`;
+            const exists = prev.some(z => z.id === zId || z.id === baseId);
+            if (exists) {
+                return prev.filter(z => !(z.id === zId || z.id === baseId));
+            }
+            const detailedBases = Object.values(COUNTRY_BASES).flat();
+            const allBases = [...detailedBases, ...GLOBAL_MILITARY_BASES];
+            const base = allBases.find(b => b.id === baseId);
+            if (!base) return prev;
+            return [...prev, { id: zId, coords: base.coords as [number, number], radiusKm, label }];
+        });
     }, []);
 
     const addOpponentAction = useCallback((action: OpponentAction) => {
@@ -259,6 +331,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setRisks(riskData.risks);
             setYears(riskData.years);
             setBackendStatus('connected');
+            const detailedBases = Object.values(COUNTRY_BASES).flat();
+            const allBases = [...detailedBases, ...GLOBAL_MILITARY_BASES];
+            const zones: DefenceZone[] = [];
+            for (const cfg of AD_LAYOUTS) {
+                const b = allBases.find(x => x.id === cfg.baseId);
+                if (!b) continue;
+                const zId = `${cfg.baseId}:${cfg.label}`;
+                zones.push({ id: zId, coords: b.coords as [number, number], radiusKm: cfg.radiusKm, label: cfg.label });
+            }
+            setDefenceZones(zones);
         } catch (err) {
             console.warn('Backend not reachable:', (err as Error)?.message);
             setBackendStatus('error');
@@ -610,6 +692,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             nuclearAlertLevel, setNuclearAlertLevel,
             mapCenter, setMapCenter,
             mapZoom, setMapZoom,
+            defenceZones, activateDefenceZone, deactivateDefenceZone, toggleDefenceZone,
         }}>
             {children}
         </AppContext.Provider>

@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApp } from '../context/AppContext';
+import { COUNTRY_BASES } from '../data/countryBases';
+import { GLOBAL_MILITARY_BASES } from '../data/militaryBases';
 import { Play, Activity, ShieldAlert, Crosshair } from 'lucide-react';
 
 export default function CampaignBuilder() {
-    const { playerCountry, campaignPlan, setSimulationResults, sendChatMessage } = useApp();
+    const { playerCountry, campaignPlan, setSimulationResults, sendChatMessage, triggerOpponentTurn, destroyBase } = useApp();
     const [isOpen, setIsOpen] = useState(true);
     const [isSimulating, setIsSimulating] = useState(false);
 
@@ -46,6 +48,22 @@ export default function CampaignBuilder() {
 
             // Trigger the AI Battle Report
             sendChatMessage(`[SYSTEM LOG]: Commander executed strike on coordinates [${campaignPlan.target[0].toFixed(2)}, ${campaignPlan.target[1].toFixed(2)}] using ${config.quantity} ${config.assetType}. Escalation Posture: ${config.escalation_posture}. Provide an immediate and detailed Battle Damage Assessment (BDA) report and strategic fallout analysis.`);
+            // Trigger opponent AI turn
+            triggerOpponentTurn(`Player executed ${config.assetType} strike with ${config.quantity} units`);
+            // Mark nearest enemy base at target as destroyed (visual feedback)
+            try {
+                const allBases = [...Object.values(COUNTRY_BASES).flat(), ...GLOBAL_MILITARY_BASES];
+                const target = campaignPlan.target!;
+                let nearest: { id: string; country: string; d: number } | null = null;
+                for (const b of allBases) {
+                    const [lat, lng] = b.coords as [number, number];
+                    const d = Math.hypot(lat - target[0], lng - target[1]);
+                    if (!nearest || d < nearest.d) nearest = { id: b.id, country: b.country, d };
+                }
+                if (nearest && nearest.d < 1.0) { // ~<1 deg proximity
+                    destroyBase(nearest.id);
+                }
+            } catch {}
 
             // Clear target after launch so it feels "done"
             // We do not clear it if we want the user to see exactly what they hit, but clearing is cleaner.

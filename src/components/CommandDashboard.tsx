@@ -157,7 +157,7 @@ function StatCard({ label, value, color = '#58a6ff' }: { label: string; value: R
 }
 
 export default function CommandDashboard() {
-    const { playerCountry, playerName, setShowCommandDashboard, activeConflict, setActiveConflict, setScenarioPhase, scenarioPhase } = useApp();
+    const { playerCountry, playerName, setShowCommandDashboard, activeConflict, setActiveConflict, setScenarioPhase, scenarioPhase, runCustomScenario, sendChatMessage } = useApp();
     const [activeTab, setActiveTab] = useState<Tab>('airforce');
     const [showScenarioCreator, setShowScenarioCreator] = useState(false);
     const [editingBase, setEditingBase] = useState<string | null>(null);
@@ -400,9 +400,9 @@ export default function CommandDashboard() {
                             <div key={base.id}
                                 onClick={() => setExpandedBase(expandedBase === base.id ? null : base.id)}
                                 style={{
-                                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
-                                    borderRadius: 8, padding: '6px 12px', cursor: 'pointer', transition: 'all 0.15s',
-                                    ...(expandedBase === base.id ? { borderColor: '#58a6ff', background: 'rgba(88,166,255,0.08)' } : {})
+                                    background: expandedBase === base.id ? 'rgba(88,166,255,0.08)' : 'rgba(255,255,255,0.03)',
+                                    border: expandedBase === base.id ? '1px solid #58a6ff' : '1px solid rgba(255,255,255,0.07)',
+                                    borderRadius: 8, padding: '6px 12px', cursor: 'pointer', transition: 'all 0.15s'
                                 }}
                             >
                                 <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>
@@ -423,6 +423,10 @@ export default function CommandDashboard() {
                         onLaunch={(conflict) => {
                             setActiveConflict(conflict);
                             setScenarioPhase('active');
+                            // Align map and overlays with the custom scenario
+                            runCustomScenario(conflict.attacker, conflict.defender, conflict.year);
+                            // Commander guidance prompt
+                            sendChatMessage(`We have initiated a scenario: ${conflict.attacker} vs ${conflict.defender} in ${conflict.year}. Provide a step-by-step operational plan (3-5 steps), expected enemy reaction, and escalation risks.`);
                             setShowScenarioCreator(false);
                             setShowCommandDashboard(false);
                         }}
