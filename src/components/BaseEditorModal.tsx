@@ -4,27 +4,35 @@ import { useApp } from '../context/AppContext';
 
 interface BaseEditorModalProps {
     coords: [number, number];
+    existingBase?: any;
     onClose: () => void;
     onSave: (baseInfo: any) => void;
 }
 
-export default function BaseEditorModal({ coords, onClose, onSave }: BaseEditorModalProps) {
+export default function BaseEditorModal({ coords, existingBase, onClose, onSave }: BaseEditorModalProps) {
     const { playerCountry } = useApp();
-    const [name, setName] = useState(`FOB Alpha ${Math.floor(Math.random() * 1000)}`);
-    const [type, setType] = useState('Air Base');
-    const [jets, setJets] = useState(24);
-    const [personnel, setPersonnel] = useState(1500);
+    const [name, setName] = useState(existingBase?.name || existingBase?.shortName || `FOB Alpha ${Math.floor(Math.random() * 1000)}`);
+    const [type, setType] = useState(existingBase?.type || 'air');
+
+    // Attempt to extract jets and personnel from existing assets if available
+    const initialJets = existingBase?.assets?.find((a: string) => a.includes('Fighter') || a.includes('Jet') || a.includes('Combat Aircraft'))?.match(/\d+/)?.[0] || 24;
+    const initialPersonnel = existingBase?.personnel || existingBase?.assets?.find((a: string) => a.includes('Personnel'))?.match(/\d+/)?.[0] || 1500;
+
+    const [jets, setJets] = useState(Number(initialJets));
+    const [personnel, setPersonnel] = useState(Number(initialPersonnel));
 
     const handleSave = () => {
-        const id = name.toLowerCase().replace(/\s+/g, '_');
+        const id = existingBase?.id || name.toLowerCase().replace(/\s+/g, '_');
         const newBase = {
             id,
             name,
-            country: playerCountry || 'Unknown',
-            operator: playerCountry || 'Unknown',
+            shortName: name, // Ensure both exist for compatibility
+            country: existingBase?.country || playerCountry || 'Unknown',
+            operator: existingBase?.operator || playerCountry || 'Unknown',
             type,
             lat: coords[0],
             lng: coords[1],
+            personnel,
             assets: [
                 `${jets} Multi-role Fighters`,
                 `${personnel} Stationed Personnel`,
@@ -48,7 +56,7 @@ export default function BaseEditorModal({ coords, onClose, onSave }: BaseEditorM
 
                 <h2 className="text-xl font-bold text-white uppercase tracking-wider mb-6 border-b border-white/10 pb-2">
                     <span className="text-blue-500 mr-2">✦</span>
-                    Establish Base
+                    {existingBase ? 'Update Base' : 'Establish Base'}
                 </h2>
 
                 <div className="space-y-4">
@@ -65,10 +73,10 @@ export default function BaseEditorModal({ coords, onClose, onSave }: BaseEditorM
                             className="w-full bg-black/50 border border-white/10 rounded p-2 text-sm text-white"
                             value={type} onChange={e => setType(e.target.value)}
                         >
-                            <option>Air Base</option>
-                            <option>Naval Port</option>
-                            <option>Army Garrison</option>
-                            <option>Missile Silo</option>
+                            <option value="air">Air Base</option>
+                            <option value="naval">Naval Port</option>
+                            <option value="army">Army Garrison</option>
+                            <option value="missile">Missile Silo</option>
                         </select>
                     </div>
 
@@ -103,7 +111,7 @@ export default function BaseEditorModal({ coords, onClose, onSave }: BaseEditorM
                         onClick={handleSave}
                         className="flex-1 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm uppercase tracking-wider shadow-[0_0_15px_rgba(37,99,235,0.3)] transition-all"
                     >
-                        Deploy
+                        {existingBase ? 'Update' : 'Deploy'}
                     </button>
                 </div>
             </motion.div>

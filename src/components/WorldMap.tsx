@@ -5,9 +5,11 @@ import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, Tooltip, useMap
 import { useApp } from '../context/AppContext';
 import L from 'leaflet';
 import MapSearchBar from './MapSearchBar';
-import { GLOBAL_MILITARY_BASES, BaseType } from '../data/militaryBases';
+import { COUNTRY_BASES, BaseType, CountryBase } from '../data/countryBases';
+import { GLOBAL_MILITARY_BASES } from '../data/militaryBases';
 import CampaignBuilder from './CampaignBuilder';
 import BaseEditorModal from './BaseEditorModal';
+
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -246,46 +248,59 @@ function getTypeIcon(type: string): string {
     }
 }
 
-function MapUpdater({ center, zoom }: { center: [number, number]; zoom: number }) {
+function MapUpdater({ center, zoom, scenarioId }: { center: [number, number]; zoom: number; scenarioId: string | null }) {
     const map = useMap();
     useEffect(() => {
+        // Only fly and lock center when the scenario officially changes, preserving manual maneuverability
         map.flyTo(center, zoom, { duration: 1.5 });
-    }, [center, zoom, map]);
+    }, [scenarioId]);
     return null;
 }
 
-function MapEventCatcher({ onRightClick }: { onRightClick: (coords: [number, number]) => void }) {
-    useMapEvents({
-        contextmenu: (e) => {
-            onRightClick([e.latlng.lat, e.latlng.lng]);
-        }
-    });
-    return null;
+function DeployBaseButton({ onDeploy }: { onDeploy: (coords: [number, number]) => void }) {
+    const map = useMap();
+    return (
+        <div style={{ position: 'absolute', bottom: 30, left: '50%', transform: 'translateX(-50%)', zIndex: 1000 }}>
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    const center = map.getCenter();
+                    onDeploy([center.lat, center.lng]);
+                }}
+                className="bg-red-500/20 backdrop-blur border border-red-500/40 text-red-100 text-[11px] px-6 py-2.5 rounded-full font-black shadow-2xl hover:bg-red-500/40 transition flex items-center gap-2 uppercase tracking-widest cursor-pointer"
+            >
+                📍 Deploy Military Base Here
+            </button>
+        </div>
+    );
 }
+
+// Removed MapEventCatcher map-wide right-click to improve UX
 
 // ============================================================
 // MAIN WORLD MAP COMPONENT
 // ============================================================
 export default function WorldMap() {
-    const { countries, edges, activeScenario, risks, selectedYear, playerCountry, campaignPlan, setCampaignPlan, customBases, setCustomBases, intelRevealed } = useApp();
+    const {
+        countries, edges, activeScenario, risks, selectedYear,
+        playerCountry, campaignPlan, setCampaignPlan,
+        customBases, setCustomBases, intelRevealed,
+        destroyedBases, strikeOrigin, setStrikeOrigin, showCommandDashboard,
+        mapCenter, setMapCenter, mapZoom, setMapZoom
+    } = useApp();
     const [showAlliances, setShowAlliances] = useState(true);
     const [showFacts, setShowFacts] = useState(true);
     const [showHeatmap, setShowHeatmap] = useState(true);
     const [showGlobalBases, setShowGlobalBases] = useState(true);
 
     const [editorCoords, setEditorCoords] = useState<[number, number] | null>(null);
+    const [editorBase, setEditorBase] = useState<any>(null);
 
     const yearIdx = Math.min(Math.max(selectedYear - 2025, 0), 15);
     const yearMultiplier = getYearMultiplier(selectedYear);
 
     const scenarioId = activeScenario?.scenario?.id || null;
     const overlay = scenarioId ? SCENARIO_OVERLAYS[scenarioId] : null;
-
-    const mapCenter: [number, number] = useMemo(() => {
-        if (overlay) return overlay.focusCenter;
-        return [25, 60];
-    }, [overlay]);
-    const mapZoom = overlay ? overlay.focusZoom : 3;
 
     // Year-adjusted cascade data
     const adjustedCascade = useMemo(() => {
@@ -302,49 +317,85 @@ export default function WorldMap() {
         : 0;
 
     const handleBaseClick = (base: any) => {
-        if (!playerCountry) return; // Must be logged in
-        if (base.country !== playerCountry) return; // Can only deploy from own bases
-
-        const isSelected = campaignPlan.activeBases.includes(base.id);
-        const newBases = isSelected
-            ? campaignPlan.activeBases.filter(id => id !== base.id)
-            : [...campaignPlan.activeBases, base.id];
-
-        setCampaignPlan({ ...campaignPlan, activeBases: newBases });
+        // Nothing special on base marker click itself, actions are in popup
     };
 
-    const handleMapRightClick = (coords: [number, number]) => {
-        if (!playerCountry) return;
-        // Set target IF they have bases selected, else open Base Editor
-        if (campaignPlan.activeBases.length > 0) {
-            setCampaignPlan({ ...campaignPlan, target: coords });
+    const handleStrikeClick = (baseId: string) => {
+        if (strikeOrigin === baseId) {
+            setStrikeOrigin(null);
+            setCampaignPlan({ ...campaignPlan, activeBases: campaignPlan.activeBases.filter(id => id !== baseId) });
         } else {
-            setEditorCoords(coords);
+            setStrikeOrigin(baseId);
+            if (!campaignPlan.activeBases.includes(baseId)) {
+                setCampaignPlan({ ...campaignPlan, activeBases: [...campaignPlan.activeBases, baseId] });
+            }
         }
     };
 
+    // Removed right-click handler logic since we use a button now
+
     // Combine hardcoded + dynamic custom bases
     const allBases = useMemo(() => {
+        // Start with the detailed country-specific bases
+        const detailedBases = Object.values(COUNTRY_BASES).flat();
+
+        // Add the massive global database
+        // Normalize MilitaryBaseData to CountryBase shape for the map
+        const globalBasesMapped = GLOBAL_MILITARY_BASES.map(gb => ({
+            ...gb,
+            personnel: typeof gb.personnel === 'string'
+                ? parseInt(gb.personnel.replace(/,/g, '')) || 0
+                : gb.personnel,
+            strength: {
+                men: typeof gb.personnel === 'string' ? parseInt(gb.personnel.replace(/,/g, '')) || 0 : gb.personnel,
+                jets: 0, helicopters: 0, drones: 0, missiles: [],
+                tacticalBrillianceRating: 5, readinessPercent: 80,
+                notes: gb.role
+            }
+        })) as unknown as CountryBase[];
+
+        // Deduplicate: Use detailed bases if IDs or Names match exactly
+        const detailedIds = new Set(detailedBases.map(b => b.id));
+        const detailedNames = new Set(detailedBases.map(b => b.name.toLowerCase()));
+
+        const filteredGlobal = globalBasesMapped.filter(gb =>
+            !detailedIds.has(gb.id) && !detailedNames.has(gb.name.toLowerCase())
+        );
+
+        const mergedGlobalList = [...detailedBases, ...filteredGlobal];
+
         const extra = customBases.map(cb => ({
             ...cb,
-            coords: [cb.lat, cb.lng] as [number, number],
+            coords: (cb.coords || [cb.lat, cb.lng]) as [number, number],
             shortName: cb.name, // quick adapt
             operatorFlag: '🏴', // fallback flag
             scenarioRoles: {},
             role: 'Player Custom Facility',
-            assets: cb.assets || []
+            assets: cb.assets || [],
+            strength: cb.strength || { men: 500, jets: 0, tacticalBrillianceRating: 5, readinessPercent: 100, notes: 'User Created' }
         }));
 
-        const combined = [...GLOBAL_MILITARY_BASES, ...extra];
+        const overriddenIds = new Set(extra.map(cb => cb.id));
+        const finalGlobalList = mergedGlobalList.filter(gb => !overriddenIds.has(gb.id));
+
+        const combined = [...finalGlobalList, ...extra] as CountryBase[];
 
         // FOG OF WAR LOGIC
         if (!playerCountry) {
-            return combined; // Observer mode: see everything
+            return combined; // Observer mode: see EVERYTHING in the database
         } else {
-            // Logged in: only see own bases OR revealed countries
-            return combined.filter(b => b.country === playerCountry || intelRevealed.includes(b.country));
+            // Logged in: only see own bases OR revealed countries OR targeted enemy bases
+            const regionalReveals = playerCountry === 'India' ? ['Pakistan', 'China'] : [];
+            const effectiveReveals = [...new Set([...intelRevealed, ...regionalReveals])];
+
+            return combined.filter(b =>
+                b.country === playerCountry ||
+                effectiveReveals.includes(b.country) ||
+                destroyedBases.includes(b.id)
+            );
         }
-    }, [customBases, playerCountry, intelRevealed]);
+    }, [customBases, playerCountry, intelRevealed, destroyedBases]);
+
 
     return (
         <div className="map-container relative">
@@ -352,8 +403,9 @@ export default function WorldMap() {
             {editorCoords && (
                 <BaseEditorModal
                     coords={editorCoords}
-                    onClose={() => setEditorCoords(null)}
-                    onSave={(b) => setCustomBases([...customBases, b])}
+                    existingBase={editorBase}
+                    onClose={() => { setEditorCoords(null); setEditorBase(null); }}
+                    onSave={(b) => setCustomBases([...customBases.filter(cb => cb.id !== b.id), b])}
                 />
             )}
 
@@ -370,24 +422,38 @@ export default function WorldMap() {
                 maxZoom={12}
             >
                 <TileLayer
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}"
-                    attribution='Esri, USGS'
+                    url="https://tiles.stadiamaps.com/tiles/stamen_terrain/{z}/{x}/{y}{r}.png"
+                    attribution='&copy; <a href="https://stadiamaps.com">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org">OpenMapTiles</a> &copy; <a href="https://openstreetmap.org">OpenStreetMap</a> contributors'
+                    maxZoom={18}
                 />
-                {/* Military terrain tint overlay */}
+                {/* Subtle dark military label overlay */}
                 <TileLayer
-                    url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png"
+                    url="https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png"
                     attribution='&copy; CARTO'
-                    opacity={0.55}
+                    opacity={0.7}
                 />
                 <ZoomControl position="bottomright" />
-                <MapUpdater center={mapCenter} zoom={mapZoom} />
+                <MapUpdater center={mapCenter} zoom={mapZoom} scenarioId={scenarioId} />
+
+                {/* === DEPLOY BASE BUTTON === */}
+                {playerCountry && (
+                    <DeployBaseButton
+                        onDeploy={(coords) => {
+                            setEditorCoords(coords);
+                            setEditorBase(null);
+                        }}
+                    />
+                )}
 
                 {/* === GOOGLE MAPS-STYLE SEARCH BAR === */}
                 <MapSearchBar />
-                <MapEventCatcher onRightClick={handleMapRightClick} />
+                {/* Remove MapEventCatcher to prevent right-click confusion */}
 
-                {/* === GLOBAL MILITARY BASES (all nations, always shown) === */}
+                {/* === GLOBAL MILITARY BASES === */}
                 {showGlobalBases && allBases.map((base) => {
+                    const isDestroyed = destroyedBases.includes(base.id);
+                    const isStrikeOrigin = strikeOrigin === base.id;
+
                     const scenarioId = activeScenario?.scenario?.id as keyof typeof base.scenarioRoles | undefined;
                     const role = scenarioId && base.scenarioRoles ? base.scenarioRoles[scenarioId] : null;
                     const baseTypeColor: Record<BaseType, string> = {
@@ -395,8 +461,8 @@ export default function WorldMap() {
                         missile: '#b45309', drone: '#7c3aed', hq: '#b91c1c',
                         space: '#4c1d95', submarine: '#0f766e', nuclear: '#be123c'
                     };
-                    const bc = baseTypeColor[base.type as BaseType] || '#374151';
-                    const dimmed = !!activeScenario && !role;
+                    const bc = isDestroyed ? '#4b5563' : (baseTypeColor[base.type as BaseType] || '#374151');
+                    const dimmed = (!!activeScenario && !role) || isDestroyed;
                     const isCritical = role?.startsWith('🔴');
                     const isActive = role?.startsWith('🟠');
                     const ringR = dimmed ? 8 : isCritical ? 16 : isActive ? 13 : 10;
@@ -408,13 +474,19 @@ export default function WorldMap() {
                     return (
                         <React.Fragment key={base.id}>
                             <CircleMarker center={base.coords as [number, number]} radius={ringR}
-                                pathOptions={{ color: bc, fillColor: bc, fillOpacity: dimmed ? 0.03 : 0.07, weight: isCritical ? 2 : 1.5, opacity: (dimmed ? 0.25 : 1) * 0.6, dashArray: '4 3' }}
+                                pathOptions={{ color: bc, fillColor: bc, fillOpacity: dimmed ? 0.03 : 0.08, weight: isCritical ? 2 : 1.5, opacity: (dimmed ? 0.25 : 1) * (isDestroyed ? 0.3 : 0.6), dashArray: '4 3' }}
                             />
 
                             {/* Player Selection Indicator */}
-                            {campaignPlan.activeBases.includes(base.id) && (
+                            {isStrikeOrigin && !isDestroyed && (
                                 <CircleMarker center={base.coords as [number, number]} radius={ringR + 5}
                                     pathOptions={{ color: '#ef4444', fillColor: 'transparent', weight: 3, dashArray: '5 5' }}
+                                />
+                            )}
+
+                            {isDestroyed && (
+                                <CircleMarker center={base.coords as [number, number]} radius={ringR + 2}
+                                    pathOptions={{ color: '#ef4444', fillColor: 'transparent', weight: 2 }}
                                 />
                             )}
 
@@ -423,42 +495,77 @@ export default function WorldMap() {
                                     click: () => handleBaseClick(base)
                                 }}
                                 pathOptions={{
-                                    color: dimmed ? '#6b7280' : '#1c1917',
-                                    fillColor: campaignPlan.activeBases.includes(base.id) ? '#ef4444' : dimmed ? '#9ca3af' : bc,
-                                    fillOpacity: dimmed ? 0.25 : 0.9,
+                                    color: dimmed ? '#4b5563' : '#1c1917',
+                                    fillColor: isDestroyed ? '#1f2937' : isStrikeOrigin ? '#ef4444' : dimmed ? '#6b7280' : bc,
+                                    fillOpacity: isDestroyed ? 0.8 : dimmed ? 0.35 : 0.9,
                                     weight: 1.2
                                 }}
                             >
                                 {!dimmed && (
-                                    <Tooltip permanent direction="top" offset={[0, -innerR - 2]}>
-                                        <span style={{ fontSize: 8, fontWeight: 900, color: '#1c1917', background: 'rgba(254,252,232,0.97)', padding: '1px 5px', borderRadius: 2, border: `1px solid ${bc}`, letterSpacing: 0.3, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                                    <Tooltip permanent direction="top" offset={[0, -innerR - 3]}>
+                                        <span style={{ fontSize: 10.5, fontWeight: 900, color: '#1c1917', background: 'rgba(254,252,232,0.98)', padding: '2px 6px', borderRadius: 3, border: `1px solid ${bc}`, boxShadow: '0 2px 4px rgba(0,0,0,0.3)', letterSpacing: 0.4, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                                             {base.operatorFlag} {typeIcon[base.type as BaseType]} {base.shortName}
                                         </span>
                                     </Tooltip>
                                 )}
-                                <Popup minWidth={240} maxWidth={300}>
-                                    <div style={{ background: 'rgba(254,252,232,0.99)', color: '#1c1917', fontFamily: 'monospace', borderRadius: 4, overflow: 'hidden' }}>
-                                        <div style={{ background: bc, padding: '8px 12px' }}>
-                                            <div style={{ fontSize: 12, fontWeight: 900, color: '#fff', textTransform: 'uppercase' }}>{base.operatorFlag} {typeIcon[base.type as BaseType]} {base.shortName}</div>
-                                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.8)', marginTop: 1 }}>{base.operator} · {base.country} · {base.personnel} personnel</div>
+                                <Popup minWidth={260} maxWidth={320} className="wargame-popup">
+                                    <div style={{ background: 'rgba(13, 17, 23, 0.98)', color: '#e6edf3', fontFamily: '"JetBrains Mono", monospace', borderRadius: 8, overflow: 'hidden', border: `1px solid ${bc}50`, boxShadow: '0 8px 32px rgba(0,0,0,0.8)' }}>
+                                        <div style={{ background: isDestroyed ? '#4b5563' : bc, padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                                            <div style={{ fontSize: 13, fontWeight: 900, color: '#fff', textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                <span>{base.operatorFlag} {typeIcon[base.type as BaseType]} {base.shortName}</span>
+                                                {isDestroyed && <span style={{ color: '#ef4444', fontSize: 10, background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: 4 }}>DESTROYED</span>}
+                                            </div>
+                                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.8)', marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                                <span style={{ background: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: 4 }}>{base.operator}</span>
+                                                <span style={{ background: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: 4 }}>{base.personnel.toLocaleString()} PAX</span>
+                                            </div>
                                         </div>
-                                        {role && (
-                                            <div style={{ padding: '6px 12px', background: 'rgba(217,119,6,0.1)', borderBottom: '1px solid #d97706' }}>
-                                                <div style={{ fontSize: 9, fontWeight: 800, color: '#92400e', textTransform: 'uppercase', letterSpacing: 1 }}>Scenario Role</div>
-                                                <div style={{ fontSize: 10, fontWeight: 700, color: '#1c1917', marginTop: 2, lineHeight: 1.4 }}>{role}</div>
+
+                                        {!isDestroyed && (
+                                            <div style={{ padding: '12px 14px' }}>
+                                                <div style={{ fontSize: 10, fontWeight: 800, color: bc, textTransform: 'uppercase', marginBottom: 6, letterSpacing: 1 }}>Key Assets</div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                                                    {(base.assets || []).slice(0, 6).map((a: string, i: number) => (
+                                                        <div key={i} style={{ fontSize: 10, color: '#c9d1d9', background: 'rgba(255,255,255,0.05)', padding: '4px 6px', borderRadius: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                            {a}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                {(base.assets || []).length > 6 && <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 6, textAlign: 'center' }}>+{(base.assets || []).length - 6} more assets offline</div>}
                                             </div>
                                         )}
-                                        <div style={{ padding: '6px 12px' }}>
-                                            <div style={{ fontSize: 9, fontWeight: 800, color: '#78350f', textTransform: 'uppercase', marginBottom: 3 }}>Key Assets</div>
-                                            {(base.assets || []).slice(0, 5).map((a: string, i: number) => (
-                                                <div key={i} style={{ fontSize: 10, color: '#292524', marginBottom: 1 }}>
-                                                    <span style={{ color: bc, fontWeight: 700 }}>› </span>{a}
+
+                                        <div style={{ padding: '8px 14px 12px', background: 'rgba(0,0,0,0.2)' }}>
+                                            <div style={{ fontSize: 10, color: '#8b949e', lineHeight: 1.5, fontStyle: 'italic', marginBottom: 12 }}>{base.role}</div>
+
+                                            {/* Action Buttons */}
+                                            {playerCountry && !isDestroyed && (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                                                    {base.country === playerCountry ? (
+                                                        <div style={{ display: 'flex', gap: 8 }}>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handleStrikeClick(base.id); }}
+                                                                style={{ flex: 1, padding: '8px', background: isStrikeOrigin ? '#ef4444' : 'rgba(239, 68, 68, 0.15)', border: `1px solid ${isStrikeOrigin ? '#ef4444' : 'rgba(239, 68, 68, 0.3)'}`, color: isStrikeOrigin ? '#fff' : '#ef4444', borderRadius: 6, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s' }}
+                                                            >
+                                                                {isStrikeOrigin ? 'Targeting...' : 'Strike From Here'}
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); setEditorCoords(base.coords as [number, number]); setEditorBase(base); }}
+                                                                style={{ padding: '8px 12px', background: 'rgba(88, 166, 255, 0.1)', border: '1px solid rgba(88, 166, 255, 0.3)', color: '#58a6ff', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); setCampaignPlan({ ...campaignPlan, target: base.coords as [number, number] }); }}
+                                                            style={{ width: '100%', padding: '8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.5)', color: '#ef4444', borderRadius: 6, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s' }}
+                                                        >
+                                                            🎯 Target This Base
+                                                        </button>
+                                                    )}
                                                 </div>
-                                            ))}
-                                            {(base.assets || []).length > 5 && <div style={{ fontSize: 9, color: '#78350f', marginTop: 2 }}>+{(base.assets || []).length - 5} more…</div>}
-                                        </div>
-                                        <div style={{ padding: '4px 12px 8px', borderTop: '1px solid #d97706' }}>
-                                            <div style={{ fontSize: 9, color: '#44403c', lineHeight: 1.4, fontStyle: 'italic' }}>{base.role}</div>
+                                            )}
                                         </div>
                                     </div>
                                 </Popup>
@@ -477,7 +584,7 @@ export default function WorldMap() {
                             key={`edge-${i}`}
                             positions={[from, to]}
                             pathOptions={{
-                                color: edge.is_alliance ? 'rgba(22,101,52,0.25)' : 'rgba(185,28,28,0.18)',
+                                color: edge.is_alliance ? 'rgba(88,166,255,0.25)' : 'rgba(239,68,68,0.18)', // Updated network colors
                                 weight: Math.abs(edge.weight) * 2,
                                 dashArray: edge.is_alliance ? undefined : '6 4',
                             }}
@@ -500,9 +607,15 @@ export default function WorldMap() {
                 })}
 
                 {campaignPlan.target && (
-                    <CircleMarker center={campaignPlan.target} radius={12}
-                        pathOptions={{ color: '#ef4444', fillColor: 'transparent', weight: 4, opacity: 1 }}
-                    />
+                    <CircleMarker center={campaignPlan.target} radius={14}
+                        pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.3, weight: 3, opacity: 1 }}
+                    >
+                        <Tooltip permanent direction="top" className="target-tooltip" offset={[0, -10]}>
+                            <div style={{ color: '#ef4444', fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1, fontSize: 10 }}>
+                                ⚠️ Target Locked
+                            </div>
+                        </Tooltip>
+                    </CircleMarker>
                 )}
 
                 {/* === SCENARIO: Military Movement Arrows === */}

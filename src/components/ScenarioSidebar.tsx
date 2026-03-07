@@ -2,7 +2,9 @@
 
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Shield, Globe, Crosshair, Zap, ChevronDown, ChevronUp, Play } from 'lucide-react';
+import { Shield, Globe, Crosshair, Zap, ChevronRight, Activity, Target, Plus, MapPin } from 'lucide-react';
+import { COUNTRY_FIREPOWER } from '../data/countryFirepower';
+import { COUNTRY_BASES } from '../data/countryBases';
 
 // ── Year multiplier (matching WorldMap logic) ─────────────────
 function getYearMultiplier(year: number): number {
@@ -82,26 +84,23 @@ function getProb(predictions: Record<string, number>, a: string, b: string): num
 
 export default function ScenarioSidebar() {
     const {
-        activeScenario, loadScenario, runCustomScenario,
+        activeScenario, loadScenario,
         selectedYear, setSelectedYear, predictions, isLoading,
-        playerCountry, setPlayerCountry, setShowLoginModal
+        playerCountry, setPlayerCountry, setShowLoginModal,
+        setShowCommandDashboard, activeConflict, scenarioPhase,
+        customBases, setCustomBases,
     } = useApp();
 
+    const [newBaseForm, setNewBaseForm] = useState({
+        name: '',
+        lat: '28.02',
+        lng: '73.05',
+        type: 'air' as any,
+        assetRows: [{ name: 'Rafale', qty: '20' }],
+        men: '1000',
+    });
+
     const yearMultiplier = getYearMultiplier(selectedYear);
-
-    // ── Custom scenario builder state ────────────────────────
-    const [customOpen, setCustomOpen] = useState(false);
-    const [customA, setCustomA] = useState('China');
-    const [customB, setCustomB] = useState('USA');
-    const [customYear, setCustomYear] = useState(2027);
-    const [customLoading, setCustomLoading] = useState(false);
-
-    const handleCustomRun = async () => {
-        if (customA === customB || customLoading) return;
-        setCustomLoading(true);
-        await runCustomScenario(customA, customB, customYear);
-        setCustomLoading(false);
-    };
 
     // ── Dynamic emerging conflicts ───────────────────────────
     // Take all 91 model predictions, year-adjust, sort, surface top 10
@@ -125,6 +124,58 @@ export default function ScenarioSidebar() {
         return s?.id || null;
     };
 
+    const handleAddSidebarBase = () => {
+        if (!newBaseForm.name || !newBaseForm.lat || !newBaseForm.lng) {
+            alert('Please fill in all base details.');
+            return;
+        }
+
+        const latNum = parseFloat(newBaseForm.lat);
+        const lngNum = parseFloat(newBaseForm.lng);
+
+        if (isNaN(latNum) || isNaN(lngNum)) {
+            alert('Coordinates must be valid numbers.');
+            return;
+        }
+
+        const assetsArray = newBaseForm.assetRows
+            .filter(r => r.name && r.qty)
+            .map(r => `${r.name} (${r.qty})`);
+
+        const totalJets = newBaseForm.assetRows.reduce((acc, r) => acc + (parseInt(r.qty) || 0), 0);
+
+        const newBase = {
+            id: `custom-sidebar-${Date.now()}`,
+            name: newBaseForm.name,
+            country: playerCountry || 'Unknown',
+            shortName: newBaseForm.name.substring(0, 15),
+            type: newBaseForm.type,
+            coords: [latNum, lngNum] as [number, number],
+            operatorFlag: playerCountry === 'India' ? '🇮🇳' : '🏳️',
+            personnel: parseInt(newBaseForm.men) || 1000,
+            assets: assetsArray,
+            role: 'User deployed strategic asset',
+            strength: {
+                jets: totalJets,
+                men: parseInt(newBaseForm.men) || 1000,
+                tacticalBrillianceRating: 5,
+                readinessPercent: 100,
+                notes: 'Manual deployment with detailed assets'
+            }
+        };
+
+        setCustomBases([...customBases, newBase]);
+        setNewBaseForm({
+            name: '',
+            lat: '28.02',
+            lng: '73.05',
+            type: 'air',
+            assetRows: [{ name: 'Rafale', qty: '20' }],
+            men: '1000'
+        });
+        alert(`Strategic Asset "${newBase.name}" deployed with ${assetsArray.length} asset types.`);
+    };
+
     return (
         <div className="sidebar">
             {/* ── HEADER ── */}
@@ -142,68 +193,36 @@ export default function ScenarioSidebar() {
                 {/* Login / Identity Section */}
                 <div style={{ marginTop: 16 }}>
                     {playerCountry ? (
-                        <div style={{
-                            background: 'rgba(239, 68, 68, 0.05)',
-                            border: '1px solid rgba(239, 68, 68, 0.2)',
-                            borderRadius: 10,
-                            padding: '12px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 8
-                        }}>
+                        <div style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 10, padding: '12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Active Command</span>
                                 <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', boxShadow: '0 0 8px #ef4444' }} />
                             </div>
                             <div style={{ fontSize: 15, fontWeight: 900, color: '#e6edf3', letterSpacing: 0.5 }}>{playerCountry.toUpperCase()}</div>
-                            <button
-                                onClick={() => setPlayerCountry(null)}
-                                style={{
-                                    marginTop: 4,
-                                    width: '100%',
-                                    padding: '6px 0',
-                                    borderRadius: 6,
-                                    background: 'rgba(239, 68, 68, 0.1)',
-                                    border: '1px solid rgba(239, 68, 68, 0.2)',
-                                    color: '#ef4444',
-                                    fontSize: 10,
-                                    fontWeight: 700,
-                                    textTransform: 'uppercase',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                Terminate Session
-                            </button>
+                            {activeConflict && (
+                                <div style={{ padding: '6px 8px', background: 'rgba(239,68,68,0.1)', borderRadius: 6, fontSize: 10, color: '#ef4444', fontWeight: 700 }}>
+                                    ⚔️ {activeConflict.attacker} vs {activeConflict.defender} — {activeConflict.year}
+                                </div>
+                            )}
+                            <div style={{ display: 'flex', gap: 6 }}>
+                                <button
+                                    onClick={() => setShowCommandDashboard(true)}
+                                    style={{ flex: 1, padding: '6px 0', borderRadius: 6, background: 'rgba(88,166,255,0.15)', border: '1px solid rgba(88,166,255,0.3)', color: '#58a6ff', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                                >
+                                    <Shield size={11} /> Command Center
+                                </button>
+                                <button
+                                    onClick={() => setPlayerCountry(null)}
+                                    style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#ef4444', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', cursor: 'pointer' }}
+                                >
+                                    Exit
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         <button
                             onClick={() => setShowLoginModal(true)}
-                            style={{
-                                width: '100%',
-                                padding: '12px',
-                                borderRadius: 10,
-                                background: 'linear-gradient(135deg, rgba(88, 166, 255, 0.15), rgba(188, 140, 255, 0.15))',
-                                border: '1px solid rgba(88, 166, 255, 0.3)',
-                                color: '#58a6ff',
-                                fontSize: 12,
-                                fontWeight: 800,
-                                textTransform: 'uppercase',
-                                letterSpacing: 1,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 8,
-                                transition: 'all 0.2s'
-                            }}
-                            onMouseOver={(e) => {
-                                e.currentTarget.style.background = 'linear-gradient(135deg, rgba(88, 166, 255, 0.25), rgba(188, 140, 255, 0.25))';
-                                e.currentTarget.style.borderColor = 'rgba(88, 166, 255, 0.5)';
-                            }}
-                            onMouseOut={(e) => {
-                                e.currentTarget.style.background = 'linear-gradient(135deg, rgba(88, 166, 255, 0.15), rgba(188, 140, 255, 0.15))';
-                                e.currentTarget.style.borderColor = 'rgba(88, 166, 255, 0.3)';
-                            }}
+                            style={{ width: '100%', padding: '12px', borderRadius: 10, background: 'linear-gradient(135deg, rgba(88, 166, 255, 0.15), rgba(188, 140, 255, 0.15))', border: '1px solid rgba(88, 166, 255, 0.3)', color: '#58a6ff', fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.2s' }}
                         >
                             <Shield size={14} />
                             Initialize Command
@@ -212,270 +231,284 @@ export default function ScenarioSidebar() {
                 </div>
             </div>
 
-            {/* ── PRESET SCENARIOS ── */}
-            <div className="scenarios-section">
-                <div className="section-title">
-                    <Crosshair size={12} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
-                    Preset Scenarios
-                </div>
+            {/* ── CONDITIONAL CONTENT ── */}
+            {playerCountry ? (
+                // PLAYER DASHBOARD VIEW
+                <div style={{ padding: '0 20px', flex: 1, overflowY: 'auto' }}>
+                    <div className="section-title">
+                        <Activity size={12} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+                        Strategic Assets Overview
+                    </div>
 
-                {PRESET_SCENARIOS.map((s) => {
-                    const rawProb = getProb(predictions, s.a, s.b);
-                    const adjProb = rawProb > 0 ? Math.round(rawProb * yearMultiplier * 10) / 10 : 0;
-                    const isActive = activeScenario?.scenario?.id === s.id;
-
-                    return (
-                        <div
-                            key={s.id}
-                            className={`scenario-card ${s.risk} ${isActive ? 'active' : ''}`}
-                            onClick={() => !isLoading && loadScenario(s.id, s.year)}
-                            style={{ opacity: isLoading ? 0.6 : 1 }}
-                        >
-                            <div className="scenario-card-header">
-                                <h3>{s.title}</h3>
-                                <span
-                                    className={`scenario-prob`}
-                                    style={{ color: adjProb > 0 ? getRiskColor(adjProb) : undefined }}
-                                >
-                                    {adjProb > 0 ? `${adjProb}%` : s.risk.toUpperCase()}
-                                </span>
+                    {COUNTRY_FIREPOWER[playerCountry] && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+                            {/* Air Force Summary */}
+                            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: 12 }}>
+                                <div style={{ fontSize: 9, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', letterSpacing: 1, marginBottom: 8 }}>Air Superiority</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontSize: 24, fontWeight: 900, color: '#58a6ff', fontFamily: 'JetBrains Mono, monospace' }}>{COUNTRY_FIREPOWER[playerCountry].airforce.combatAircraft.toLocaleString()}</span>
+                                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>Combat Jets</span>
+                                </div>
                             </div>
-                            <p>{s.desc}</p>
-                            <div className="scenario-actors">
-                                {s.actors.map((a) => (
-                                    <span key={a.name} className={`actor-tag ${a.role}`}>
-                                        {a.role === 'attacker' ? '⚔️' : a.role === 'defender' ? '🛡️' : '🤝'} {a.name}
-                                    </span>
-                                ))}
+
+                            {/* Army Summary */}
+                            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: 12 }}>
+                                <div style={{ fontSize: 9, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', letterSpacing: 1, marginBottom: 8 }}>Ground Forces</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontSize: 24, fontWeight: 900, color: '#f97316', fontFamily: 'JetBrains Mono, monospace' }}>{COUNTRY_FIREPOWER[playerCountry].army.tanks.toLocaleString()}</span>
+                                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>Main Battle Tanks</span>
+                                </div>
+                            </div>
+
+                            {/* Navy Summary */}
+                            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: 12 }}>
+                                <div style={{ fontSize: 9, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', letterSpacing: 1, marginBottom: 8 }}>Naval Fleet</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontSize: 24, fontWeight: 900, color: '#39d2c0', fontFamily: 'JetBrains Mono, monospace' }}>{COUNTRY_FIREPOWER[playerCountry].navy.activePlatforms.toLocaleString()}</span>
+                                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>Active Ships/Subs</span>
+                                </div>
+                            </div>
+
+                            {/* Nuclear Summary */}
+                            <div style={{ background: 'rgba(248,81,73,0.05)', border: '1px solid rgba(248,81,73,0.15)', borderRadius: 8, padding: 12 }}>
+                                <div style={{ fontSize: 9, textTransform: 'uppercase', color: '#f85149', letterSpacing: 1, marginBottom: 8 }}>Strategic Deterrent</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontSize: 24, fontWeight: 900, color: '#f85149', fontFamily: 'JetBrains Mono, monospace' }}>{COUNTRY_FIREPOWER[playerCountry].nuclear.warheads.toLocaleString()}</span>
+                                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>Warheads</span>
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: 24, padding: 16, background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 8 }}>
+                                <h4 style={{ fontSize: 10, textTransform: 'uppercase', color: '#ef4444', letterSpacing: 1, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <Plus size={12} /> Deploy New Asset
+                                </h4>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Base Name (e.g. Forward HQ)"
+                                        value={newBaseForm.name}
+                                        onChange={(e) => setNewBaseForm({ ...newBaseForm, name: e.target.value })}
+                                        style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '6px 10px', fontSize: 11, color: '#fff', width: '100%' }}
+                                    />
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <input
+                                            type="text"
+                                            placeholder="Latitude (e.g. 28.6)"
+                                            value={newBaseForm.lat}
+                                            onChange={(e) => setNewBaseForm({ ...newBaseForm, lat: e.target.value })}
+                                            style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '6px 10px', fontSize: 11, color: '#fff', flex: 1 }}
+                                        />
+                                        <input
+                                            type="text"
+                                            placeholder="Longitude (e.g. 77.2)"
+                                            value={newBaseForm.lng}
+                                            onChange={(e) => setNewBaseForm({ ...newBaseForm, lng: e.target.value })}
+                                            style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '6px 10px', fontSize: 11, color: '#fff', flex: 1 }}
+                                        />
+                                    </div>
+                                    <select
+                                        value={newBaseForm.type}
+                                        onChange={(e) => setNewBaseForm({ ...newBaseForm, type: e.target.value as any })}
+                                        style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '6px 10px', fontSize: 11, color: '#fff', width: '100%', cursor: 'pointer' }}
+                                    >
+                                        <option value="air">Air Base</option>
+                                        <option value="naval">Naval Base</option>
+                                        <option value="army">Military / Army Base</option>
+                                        <option value="missile">Missile Site</option>
+                                    </select>
+
+                                    {/* Asset Rows */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 2 }}>Base Assets (Fighters/Ships/etc)</div>
+                                        {newBaseForm.assetRows.map((row, idx) => (
+                                            <div key={idx} style={{ display: 'flex', gap: 4 }}>
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g. Rafale"
+                                                    value={row.name}
+                                                    onChange={(e) => {
+                                                        const newRows = [...newBaseForm.assetRows];
+                                                        newRows[idx].name = e.target.value;
+                                                        setNewBaseForm({ ...newBaseForm, assetRows: newRows });
+                                                    }}
+                                                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '4px 8px', fontSize: 10, color: '#fff', flex: 2 }}
+                                                />
+                                                <input
+                                                    type="number"
+                                                    placeholder="Qty"
+                                                    value={row.qty}
+                                                    onChange={(e) => {
+                                                        const newRows = [...newBaseForm.assetRows];
+                                                        newRows[idx].qty = e.target.value;
+                                                        setNewBaseForm({ ...newBaseForm, assetRows: newRows });
+                                                    }}
+                                                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '4px 8px', fontSize: 10, color: '#fff', flex: 1 }}
+                                                />
+                                                {newBaseForm.assetRows.length > 1 && (
+                                                    <button
+                                                        onClick={() => {
+                                                            const newRows = newBaseForm.assetRows.filter((_, i) => i !== idx);
+                                                            setNewBaseForm({ ...newBaseForm, assetRows: newRows });
+                                                        }}
+                                                        style={{ background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer', fontSize: 12 }}
+                                                    >×</button>
+                                                )}
+                                            </div>
+                                        ))}
+                                        <button
+                                            onClick={() => setNewBaseForm({ ...newBaseForm, assetRows: [...newBaseForm.assetRows, { name: '', qty: '' }] })}
+                                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px dashed rgba(255,255,255,0.2)', borderRadius: 4, padding: '4px', fontSize: 9, color: 'rgba(255,255,255,0.6)', cursor: 'pointer', textAlign: 'center' }}
+                                        >
+                                            + Add Asset Type
+                                        </button>
+                                    </div>
+
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginBottom: 4, textTransform: 'uppercase' }}>Total Personnel</div>
+                                        <input
+                                            type="number"
+                                            placeholder="Men"
+                                            value={newBaseForm.men}
+                                            onChange={(e) => setNewBaseForm({ ...newBaseForm, men: e.target.value })}
+                                            style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '6px 10px', fontSize: 11, color: '#fff', width: '100%' }}
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={handleAddSidebarBase}
+                                        style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, padding: '8px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 4, transition: 'opacity 0.2s' }}
+                                    >
+                                        <MapPin size={12} /> Deploy Strategic Asset
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: 24, padding: 16, background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 8 }}>
+                                <h4 style={{ fontSize: 10, textTransform: 'uppercase', color: '#ef4444', letterSpacing: 1, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <Target size={12} /> Tactical Guide
+                                </h4>
+                                <ul style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', margin: 0, paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <li><strong>Above Form</strong>: Enter exact lat/lng to deploy command centers.</li>
+                                    <li><strong>Right-click Map</strong> to establish new bases quickly.</li>
+                                    <li><strong>Click</strong> your bases to initiate strikes.</li>
+                                </ul>
                             </div>
                         </div>
-                    );
-                })}
-            </div>
-
-            {/* ── EMERGING CONFLICTS (ML-driven, year-aware) ── */}
-            <div className="scenarios-section" style={{ marginTop: 4 }}>
-                <div className="section-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span>
-                        <Zap size={12} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle', color: '#f97316' }} />
-                        ML Conflicts — {selectedYear}
-                    </span>
-                    <span style={{ fontSize: 9, color: '#484f58', fontWeight: 400 }}>
-                        {emergingConflicts.length} active
-                    </span>
+                    )}
                 </div>
+            ) : (
+                // OBSERVER VIEW: SCENARIOS & ML CONFLICTS
+                <>
+                    {/* ── PRESET SCENARIOS ── */}
+                    <div className="scenarios-section">
+                        <div className="section-title">
+                            <Crosshair size={12} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+                            Preset Scenarios
+                        </div>
 
-                {emergingConflicts.length === 0 ? (
-                    <div style={{ fontSize: 11, color: '#484f58', padding: '8px 0', textAlign: 'center' }}>
-                        Waiting for model data...
-                    </div>
-                ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                        {emergingConflicts.map(({ pair, a, b, adjustedProb }) => {
-                            const presetId = getPresetId(a, b);
-                            const isActive = activeScenario?.scenario?.id === presetId ||
-                                activeScenario?.scenario?.id === `custom_${a}_${b}` ||
-                                activeScenario?.scenario?.id === `custom_${b}_${a}`;
-                            const color = getRiskColor(adjustedProb);
+                        {PRESET_SCENARIOS.map((s) => {
+                            const rawProb = getProb(predictions, s.a, s.b);
+                            const adjProb = rawProb > 0 ? Math.round(rawProb * yearMultiplier * 10) / 10 : 0;
+                            const isActive = activeScenario?.scenario?.id === s.id;
 
                             return (
                                 <div
-                                    key={pair}
-                                    onClick={() => {
-                                        if (isLoading) return;
-                                        if (presetId) {
-                                            loadScenario(presetId, selectedYear);
-                                        } else {
-                                            runCustomScenario(a, b, selectedYear);
-                                        }
-                                    }}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: 8,
-                                        padding: '7px 10px', borderRadius: 8, cursor: 'pointer',
-                                        background: isActive ? `${color}14` : 'rgba(22,27,34,0.6)',
-                                        border: `1px solid ${isActive ? color : 'rgba(48,54,61,0.5)'}`,
-                                        transition: 'all 0.15s',
-                                    }}
-                                    title={`Click to simulate ${a} vs ${b}`}
+                                    key={s.id}
+                                    className={`scenario-card ${s.risk} ${isActive ? 'active' : ''}`}
+                                    onClick={() => !isLoading && loadScenario(s.id, s.year)}
+                                    style={{ opacity: isLoading ? 0.6 : 1 }}
                                 >
-                                    {/* Risk bar */}
-                                    <div style={{ width: 3, height: 28, borderRadius: 2, background: color, flexShrink: 0 }} />
-                                    {/* Label */}
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: 10, fontWeight: 700, color: '#e6edf3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            {a} vs {b}
-                                        </div>
-                                        {/* Progress bar */}
-                                        <div style={{ marginTop: 3, height: 3, background: '#21262d', borderRadius: 2 }}>
-                                            <div style={{ width: `${Math.min(adjustedProb, 100)}%`, height: '100%', background: color, borderRadius: 2, transition: 'width 0.3s' }} />
-                                        </div>
+                                    <div className="scenario-card-header">
+                                        <h3>{s.title}</h3>
+                                        <span
+                                            className={`scenario-prob`}
+                                            style={{ color: adjProb > 0 ? getRiskColor(adjProb) : undefined }}
+                                        >
+                                            {adjProb > 0 ? `${adjProb}%` : s.risk.toUpperCase()}
+                                        </span>
                                     </div>
-                                    {/* Prob */}
-                                    <div style={{ fontSize: 11, fontWeight: 800, color, fontFamily: "'JetBrains Mono', monospace", flexShrink: 0 }}>
-                                        {adjustedProb}%
+                                    <p>{s.desc}</p>
+                                    <div className="scenario-actors">
+                                        {s.actors.map((a) => (
+                                            <span key={a.name} className={`actor-tag ${a.role}`}>
+                                                {a.role === 'attacker' ? '⚔️' : a.role === 'defender' ? '🛡️' : '🤝'} {a.name}
+                                            </span>
+                                        ))}
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
-                )}
-            </div>
 
-            {/* ── CUSTOM SCENARIO BUILDER ── */}
-            <div className="scenarios-section" style={{ marginTop: 4 }}>
-                <div
-                    className="section-title"
-                    style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                    onClick={() => setCustomOpen(o => !o)}
-                >
-                    <span>
-                        <Play size={12} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle', color: '#bc8cff' }} />
-                        Custom Scenario Builder
-                    </span>
-                    {customOpen ? <ChevronUp size={13} style={{ color: '#8b949e' }} /> : <ChevronDown size={13} style={{ color: '#8b949e' }} />}
-                </div>
-
-                {customOpen && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0 8px' }}>
-                        {/* Country A & B */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                            <div>
-                                <div style={{ fontSize: 9, color: '#8b949e', textTransform: 'uppercase', marginBottom: 4, letterSpacing: 0.5 }}>⚔️ Attacker</div>
-                                <select
-                                    value={customA}
-                                    onChange={e => setCustomA(e.target.value)}
-                                    style={{
-                                        width: '100%', background: '#161b22', color: '#e6edf3',
-                                        border: '1px solid #30363d', borderRadius: 6, padding: '5px 8px',
-                                        fontSize: 11, cursor: 'pointer', outline: 'none',
-                                    }}
-                                >
-                                    {ALL_COUNTRIES.map(c => (
-                                        <option key={c} value={c} disabled={c === customB}>{c}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 9, color: '#8b949e', textTransform: 'uppercase', marginBottom: 4, letterSpacing: 0.5 }}>🛡️ Defender</div>
-                                <select
-                                    value={customB}
-                                    onChange={e => setCustomB(e.target.value)}
-                                    style={{
-                                        width: '100%', background: '#161b22', color: '#e6edf3',
-                                        border: '1px solid #30363d', borderRadius: 6, padding: '5px 8px',
-                                        fontSize: 11, cursor: 'pointer', outline: 'none',
-                                    }}
-                                >
-                                    {ALL_COUNTRIES.map(c => (
-                                        <option key={c} value={c} disabled={c === customA}>{c}</option>
-                                    ))}
-                                </select>
-                            </div>
+                    {/* ── EMERGING CONFLICTS (ML-driven, year-aware) ── */}
+                    <div className="scenarios-section" style={{ marginTop: 4 }}>
+                        <div className="section-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span>
+                                <Zap size={12} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle', color: '#f97316' }} />
+                                ML Conflicts — {selectedYear}
+                            </span>
+                            <span style={{ fontSize: 9, color: '#484f58', fontWeight: 400 }}>
+                                {emergingConflicts.length} active
+                            </span>
                         </div>
 
-                        {/* Year */}
-                        <div>
-                            <div style={{ fontSize: 9, color: '#8b949e', textTransform: 'uppercase', marginBottom: 4, letterSpacing: 0.5 }}>📅 Year</div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <input
-                                    type="range" min={2025} max={2040} value={customYear}
-                                    onChange={e => setCustomYear(Number(e.target.value))}
-                                    className="year-slider"
-                                    style={{ flex: 1, margin: 0 }}
-                                />
-                                <span style={{ fontSize: 13, fontWeight: 700, color: '#58a6ff', fontFamily: "'JetBrains Mono', monospace", minWidth: 36 }}>
-                                    {customYear}
-                                </span>
+                        {emergingConflicts.length === 0 ? (
+                            <div style={{ fontSize: 11, color: '#484f58', padding: '8px 0', textAlign: 'center' }}>
+                                Waiting for model data...
                             </div>
-                        </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                {emergingConflicts.map(({ pair, a, b, adjustedProb }) => {
+                                    const presetId = getPresetId(a, b);
+                                    const isActive = activeScenario?.scenario?.id === presetId ||
+                                        activeScenario?.scenario?.id === `custom_${a}_${b}` ||
+                                        activeScenario?.scenario?.id === `custom_${b}_${a}`;
+                                    const color = getRiskColor(adjustedProb);
 
-                        {/* Live prediction preview */}
-                        {customA !== customB && (
-                            <div style={{
-                                background: '#0d1117', borderRadius: 8, padding: '8px 12px',
-                                border: '1px solid #21262d', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            }}>
-                                <span style={{ fontSize: 10, color: '#8b949e' }}>Model P(conflict)</span>
-                                <span style={{
-                                    fontSize: 14, fontWeight: 800,
-                                    fontFamily: "'JetBrains Mono', monospace",
-                                    color: getRiskColor(Math.round(getProb(predictions, customA, customB) * getYearMultiplier(customYear) * 10) / 10),
-                                }}>
-                                    {Math.round(getProb(predictions, customA, customB) * getYearMultiplier(customYear) * 10) / 10 || '?'}%
-                                </span>
+                                    return (
+                                        <div
+                                            key={pair}
+                                            onClick={() => {
+                                                if (isLoading) return;
+                                                if (presetId) {
+                                                    loadScenario(presetId, selectedYear);
+                                                } else {
+                                                    loadScenario(`custom_${a}_${b}`, selectedYear);
+                                                }
+                                            }}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: 8,
+                                                padding: '7px 10px', borderRadius: 8, cursor: 'pointer',
+                                                background: isActive ? `${color}14` : 'rgba(22,27,34,0.6)',
+                                                border: `1px solid ${isActive ? color : 'rgba(48,54,61,0.5)'}`,
+                                                transition: 'all 0.15s',
+                                            }}
+                                            title={`Click to simulate ${a} vs ${b}`}
+                                        >
+                                            {/* Risk bar */}
+                                            <div style={{ width: 3, height: 28, borderRadius: 2, background: color, flexShrink: 0 }} />
+                                            {/* Label */}
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: 10, fontWeight: 700, color: '#e6edf3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {a} vs {b}
+                                                </div>
+                                                {/* Progress bar */}
+                                                <div style={{ marginTop: 3, height: 3, background: '#21262d', borderRadius: 2 }}>
+                                                    <div style={{ width: `${Math.min(adjustedProb, 100)}%`, height: '100%', background: color, borderRadius: 2, transition: 'width 0.3s' }} />
+                                                </div>
+                                            </div>
+
+                                            {/* Prob */}
+                                            <div style={{ fontSize: 13, fontWeight: 800, color: color, width: 45, textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>
+                                                {adjustedProb}%
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
-
-                        {/* Run button */}
-                        <button
-                            onClick={handleCustomRun}
-                            disabled={customA === customB || customLoading || isLoading}
-                            style={{
-                                width: '100%', padding: '9px 0', borderRadius: 8, cursor: 'pointer',
-                                border: '1px solid rgba(188,140,255,0.4)',
-                                background: customLoading ? 'rgba(188,140,255,0.05)' : 'rgba(188,140,255,0.12)',
-                                color: customA === customB ? '#484f58' : '#bc8cff',
-                                fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                                transition: 'all 0.2s',
-                            }}
-                        >
-                            {customLoading ? (
-                                <>
-                                    <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid #bc8cff', borderTopColor: 'transparent', animation: 'spin 0.6s linear infinite' }} />
-                                    Running Inference...
-                                </>
-                            ) : (
-                                <>
-                                    <Play size={13} />
-                                    ▶ Run {customYear} Simulation
-                                </>
-                            )}
-                        </button>
                     </div>
-                )}
-            </div>
-
-            {/* ── MODEL INFO ── */}
-            <div className="scenarios-section" style={{ marginTop: 4 }}>
-                <div className="section-title">
-                    <Shield size={12} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
-                    Model Info
-                </div>
-                <div className="scenario-card low" style={{ cursor: 'default' }}>
-                    <h3 style={{ fontSize: 12 }}>Architecture</h3>
-                    <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, lineHeight: 1.8, marginTop: 6 }}>
-                        Embedding: 14 countries → 16d<br />
-                        LSTM: 27→64 hidden (×2 layers)<br />
-                        Attention: 64→1 (timestep)<br />
-                        GNN: 64→64→32 (2-hop)<br />
-                        Predictor: 68→64→32→1
-                    </p>
-                </div>
-            </div>
-
-            {/* ── YEAR SLIDER ── */}
-            <div className="year-control">
-                <div className="year-display">
-                    <span className="year-label">Simulation Year</span>
-                    <span className="year-value">{selectedYear}</span>
-                </div>
-                <input
-                    type="range"
-                    className="year-slider"
-                    min={2025}
-                    max={2040}
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(Number(e.target.value))}
-                />
-                <div className="year-range">
-                    <span>2025</span>
-                    <span style={{ color: selectedYear >= 2027 && selectedYear <= 2030 ? '#f85149' : undefined }}>
-                        {selectedYear >= 2027 && selectedYear <= 2030 ? '⚠️ Peak Risk Window' : ''}
-                    </span>
-                    <span>2040</span>
-                </div>
-            </div>
+                </>
+            )}
         </div>
     );
 }

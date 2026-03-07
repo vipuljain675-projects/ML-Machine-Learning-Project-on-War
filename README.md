@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🛡️ WARGAME: Geopolitical Conflict Simulator
 
-## Getting Started
+![Wargame Header](https://raw.githubusercontent.com/username/project/main/public/header.png) <!-- Note: User can replace with actual image later -->
 
-First, run the development server:
+**WARGAME** is a high-fidelity geopolitical simulation platform that leverages advanced Machine Learning and Large Language Models to model, visualize, and predict global conflict escalations. 
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Built with **Next.js**, **PyTorch**, and **Groq**, it allows users to step into the role of a national leader, analyze strategic vulnerabilities, and simulate "what-if" scenarios across a unified global database of 2,500+ military bases.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🚀 Key Features
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **🌐 Universal Global Map**: Real-time visualization of 2,500+ military facilities, including all US Carrier Strike Groups (1st - 7th Fleets).
+- **🕵️ Fog of War**: Dynamic visibility system where tactical data is only revealed based on your national alliance and intelligence uplink.
+- **🧠 Strategic Advisor AI**: A persistence Groq-powered advisor that provides real-time tactical analysis based on your current map targets and asset availability.
+- **📉 Conflict Prediction Engine**: A deep learning backend that calculates the probability of war and risk cascades using historic and economic indicators.
+- **🎯 Tactical Strike Interface**: Command multi-asset strikes (Rafales, Tejas, S-400s) with automated Battle Damage Assessment (BDA).
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 🧪 Machine Learning Architecture
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The core "brain" of the simulator is a hybrid neural network designed to handle both temporal economic shifts and spatial geopolitical relationships.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 1. GNN + LSTM Hybrid Model (`PyTorch`)
+The prediction engine uses a custom **Graph Neural Network (GNN)** merged with a **Long Short-Term Memory (LSTM)** network to analyze the world state.
 
-## Deploy on Vercel
+- **Temporal Processing (LSTM + Attention)**: For each country, the model processes 15+ years of socioeconomic data (GDP growth, military spend, inflation, etc.). An attention mechanism focuses on critical "buildup" periods preceding known historic conflicts.
+- **Spatial Relational Processing (GNN)**: Geopolitical alliances are modeled as a weighted graph. The GNN propagates "tension" markers across the graph—for example, a buildup in the South China Sea propagates risk differently to Taiwan vs. a non-aligned state like Indonesia.
+- **Pairwise Conflict Predictor**: The final layer takes the latent embeddings from the GNN and predicts the likelihood of kinetic conflict between any two nations in a given year (2025–2040).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 2. Strategic Intelligence (`Groq LLM`)
+We use **Groq LPU™ Inference Engine** to power the Strategic Advisor. Unlike generic chatbots, this AI is:
+- **Context-Injected**: Receives real-time state from the map (active bases, selected targets, country firepower).
+- **Command-Aware**: Capable of interpreting natural language commands (e.g., *"Analyze a strike on PAF Sargodha"*) and translating them into map-actions.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## 🛠️ Tech Stack
+
+- **Frontend**: Next.js 15, TypeScript, Tailwind CSS, Leaflet.js (Topographic Mapping).
+- **Backend**: FastAPI (Python), PyTorch (Deep Learning).
+- **AI/LLM**: Groq (Llama-3 70B / Mixtral for tactical logic).
+- **State Management**: React Context API with persistent local storage.
+
+---
+
+## 📦 Getting Started
+
+### Prerequisites
+- Node.js 18+
+- Python 3.9+
+- Groq API Key
+
+### Installation
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/yourusername/wargame-simulator.git
+   cd wargame-simulator
+   ```
+
+2. **Frontend Setup**:
+   ```bash
+   npm install
+   cp .env.example .env.local # Add your GROQ_API_KEY
+   npm run dev
+   ```
+
+3. **Backend Setup**:
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   python server.py
+   ```
+
+---
+
+## ⚖️ Disclaimer
+*This application is a mathematical simulation intended for educational and research purposes. It uses open-source IISS and SIPRI data to model conflict probabilities and does not reflect actual classified military positioning.*

@@ -3,19 +3,26 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import ReactMarkdown from 'react-markdown';
-import { Send, Bot, User, Zap } from 'lucide-react';
+import { Send, Bot, User, Zap, ShieldAlert } from 'lucide-react';
 
-const QUICK_PROMPTS = [
+const DEFAULT_PROMPTS = [
     'What if China invades Taiwan in 2027?',
     'Iran vs Israel — who wins?',
     'Can India take back PoK?',
     'Russia attacks Europe scenario',
-    'Show me the alliance cascades',
     'Nuclear risk assessment',
 ];
 
+const COMMANDER_PROMPTS = [
+    'What are my immediate strategic threats?',
+    'Give me a tactical breakdown of our active assigned bases.',
+    'What happens if I launch a preemptive strike now?',
+    'Analyze the economic fallout of a blockade.',
+    'Which allies will support us in a conflict?'
+];
+
 export default function ChatPanel() {
-    const { chatMessages, sendChatMessage, isChatLoading, activeScenario } = useApp();
+    const { chatMessages, sendChatMessage, isChatLoading, activeScenario, playerCountry } = useApp();
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -46,14 +53,16 @@ export default function ChatPanel() {
         el.style.height = Math.min(el.scrollHeight, 120) + 'px';
     };
 
+    const activePrompts = playerCountry ? COMMANDER_PROMPTS : DEFAULT_PROMPTS;
+
     return (
         <div className="chat-panel">
             <div className="chat-header">
-                <Bot size={18} style={{ color: '#bc8cff' }} />
-                <h2>Wargame AI</h2>
+                <ShieldAlert size={18} style={{ color: playerCountry ? '#ef4444' : '#bc8cff' }} />
+                <h2>{playerCountry ? 'Strategic Advisor' : 'Wargame AI'}</h2>
                 <span className="ai-badge">
                     <Zap size={10} style={{ marginRight: 3 }} />
-                    Groq + PyTorch
+                    {playerCountry ? 'Classified Uplink' : 'Groq + PyTorch'}
                 </span>
             </div>
 
@@ -62,15 +71,14 @@ export default function ChatPanel() {
                     <div style={{
                         textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)',
                     }}>
-                        <Bot size={40} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
-                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                            WARGAME-AI Ready
+                        <ShieldAlert size={40} style={{ margin: '0 auto 12px', opacity: 0.3, color: playerCountry ? '#ef4444' : 'inherit' }} />
+                        <div style={{ fontSize: 14, fontWeight: 600, color: playerCountry ? '#ef4444' : 'var(--text-secondary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>
+                            {playerCountry ? `${playerCountry} HIGH COMMAND ADVISOR` : 'WARGAME-AI Ready'}
                         </div>
                         <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                            Ask me about any geopolitical scenario.<br />
-                            I&apos;ll use the live PyTorch model to analyze<br />
-                            conflict probabilities, alliance cascades,<br />
-                            and strategic outcomes.
+                            {playerCountry
+                                ? <>Commander, I am online and tracking all assets.<br />Ask me for tactical analysis, strike recommendations,<br />or economic impact projections.</>
+                                : <>Ask me about any geopolitical scenario.<br />I&apos;ll use the live PyTorch model to analyze<br />conflict probabilities, alliance cascades,<br />and strategic outcomes.</>}
                         </div>
                         {activeScenario && (
                             <div style={{
@@ -122,7 +130,7 @@ export default function ChatPanel() {
 
             <div className="chat-input-area">
                 <div className="quick-prompts">
-                    {QUICK_PROMPTS.map((prompt, i) => (
+                    {activePrompts.map((prompt, i) => (
                         <button
                             key={i}
                             className="quick-prompt"
@@ -144,7 +152,7 @@ export default function ChatPanel() {
                         value={input}
                         onChange={handleTextareaInput}
                         onKeyDown={handleKeyDown}
-                        placeholder="Ask about any war scenario..."
+                        placeholder={playerCountry ? "Request tactical advice Commander..." : "Ask about any war scenario..."}
                         rows={1}
                     />
                     <button

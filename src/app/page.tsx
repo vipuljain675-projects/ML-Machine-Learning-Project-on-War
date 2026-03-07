@@ -7,11 +7,17 @@ import ScenarioSidebar from '../components/ScenarioSidebar';
 import ChatPanel from '../components/ChatPanel';
 import LoginModal from '../components/LoginModal';
 import AdvisorPanel from '../components/AdvisorPanel';
+import { AnimatePresence } from 'framer-motion';
 
 const WorldMap = dynamic(() => import('../components/WorldMap'), { ssr: false });
+const CommandDashboard = dynamic(() => import('../components/CommandDashboard'), { ssr: false });
+const OpponentNotifications = dynamic(() => import('../components/OpponentNotifications'), { ssr: false });
 
 function AppContent() {
-  const { backendStatus, initializeData, playerCountry, setPlayerCountry, showLoginModal, setShowLoginModal } = useApp();
+  const {
+    backendStatus, initializeData, showLoginModal,
+    showCommandDashboard, playerCountry,
+  } = useApp();
 
   useEffect(() => {
     initializeData();
@@ -36,16 +42,12 @@ function AppContent() {
         <div className="loading-text" style={{ color: '#f85149' }}>Backend Not Connected</div>
         <div className="loading-subtext">
           Start the Python server: <code style={{ background: '#161b22', padding: '4px 8px', borderRadius: '4px' }}>
-            cd backend && pip install -r requirements.txt && python server.py
+            cd backend &amp;&amp; pip install -r requirements.txt &amp;&amp; python server.py
           </code>
         </div>
         <button
           onClick={() => initializeData()}
-          style={{
-            marginTop: 12, padding: '8px 20px', background: '#161b22',
-            border: '1px solid #30363d', borderRadius: 8, color: '#e6edf3',
-            cursor: 'pointer', fontSize: 13
-          }}
+          style={{ marginTop: 12, padding: '8px 20px', background: '#161b22', border: '1px solid #30363d', borderRadius: 8, color: '#e6edf3', cursor: 'pointer', fontSize: 13 }}
         >
           Retry Connection
         </button>
@@ -55,7 +57,18 @@ function AppContent() {
 
   return (
     <>
-      {showLoginModal && <LoginModal />}
+      {/* Login Modal */}
+      <AnimatePresence>
+        {showLoginModal && <LoginModal />}
+      </AnimatePresence>
+
+      {/* Command Dashboard */}
+      <AnimatePresence>
+        {showCommandDashboard && playerCountry && <CommandDashboard />}
+      </AnimatePresence>
+
+      {/* Opponent Notifications (always mounted, shows when conflict active) */}
+      <OpponentNotifications />
 
       <div className="app-container">
         <ScenarioSidebar />

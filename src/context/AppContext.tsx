@@ -1,6 +1,10 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { COUNTRY_BASES } from '../data/countryBases';
+import { GLOBAL_MILITARY_BASES } from '../data/militaryBases';
+
+
 
 // ============================================================
 // TYPES
@@ -57,6 +61,18 @@ export interface ChatMessage {
     timestamp: Date;
 }
 
+export interface OpponentAction {
+    id: string;
+    timestamp: number;
+    type: 'strike' | 'alliance' | 'nuclear' | 'diplomatic' | 'economic' | 'mobilize';
+    country: string;
+    message: string;
+    targetBase?: string;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+}
+
+export type ScenarioPhase = 'inactive' | 'setup' | 'active' | 'escalated' | 'nuclear' | 'ceasefire';
+
 interface AppState {
     // Data from model
     countries: Country[];
@@ -98,11 +114,43 @@ interface AppState {
     setPlayerName: (name: string | null) => void;
     showLoginModal: boolean;
     setShowLoginModal: (show: boolean) => void;
+
+    // === WARGAME CONFLICT STATE ===
+    destroyedBases: string[];
+    destroyBase: (baseId: string) => void;
+    opponentActions: OpponentAction[];
+    addOpponentAction: (action: OpponentAction) => void;
+    clearOpponentActions: () => void;
+    scenarioPhase: ScenarioPhase;
+    setScenarioPhase: (phase: ScenarioPhase) => void;
+    showCommandDashboard: boolean;
+    setShowCommandDashboard: (show: boolean) => void;
+    strikeOrigin: string | null;
+    setStrikeOrigin: (id: string | null) => void;
+    activeConflict: { attacker: string; defender: string; year: number; casusBelli: string } | null;
+    setActiveConflict: (c: { attacker: string; defender: string; year: number; casusBelli: string } | null) => void;
+    triggerOpponentTurn: (playerAction: string) => Promise<void>;
+    nuclearAlertLevel: number;
+    setNuclearAlertLevel: (level: number) => void;
+
+    // Map Navigation
+    mapCenter: [number, number];
+    setMapCenter: (c: [number, number]) => void;
+    mapZoom: number;
+    setMapZoom: (z: number) => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+
+const SCENARIO_MAP_DATA: Record<string, { center: [number, number]; zoom: number }> = {
+    china_taiwan: { center: [24, 121], zoom: 6 },
+    iran_israel: { center: [32, 44], zoom: 5 },
+    india_pakistan: { center: [31, 73], zoom: 5 },
+    russia_nato: { center: [55, 37], zoom: 4 },
+    china_india: { center: [33, 80], zoom: 5 },
+};
 
 // ============================================================
 // PROVIDER
@@ -129,6 +177,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const [intelRevealed, setIntelRevealed] = useState<string[]>([]);
     const [playerName, setPlayerName] = useState<string | null>(null);
     const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+
+    // Wargame conflict state
+    const [destroyedBases, setDestroyedBases] = useState<string[]>([]);
+    const [opponentActions, setOpponentActions] = useState<OpponentAction[]>([]);
+    const [scenarioPhase, setScenarioPhase] = useState<ScenarioPhase>('inactive');
+    const [showCommandDashboard, setShowCommandDashboard] = useState(false);
+    const [strikeOrigin, setStrikeOrigin] = useState<string | null>(null);
+    const [activeConflict, setActiveConflict] = useState<{ attacker: string; defender: string; year: number; casusBelli: string } | null>(null);
+    const [nuclearAlertLevel, setNuclearAlertLevel] = useState(0);
+
+    // Map Navigation State
+    const [mapCenter, setMapCenter] = useState<[number, number]>([25, 60]);
+    const [mapZoom, setMapZoom] = useState<number>(3);
+
+    const destroyBase = useCallback((baseId: string) => {
+        setDestroyedBases(prev => [...new Set([...prev, baseId])]);
+    }, []);
+
+    const addOpponentAction = useCallback((action: OpponentAction) => {
+        setOpponentActions(prev => [action, ...prev].slice(0, 20));
+    }, []);
+
+    const clearOpponentActions = useCallback(() => setOpponentActions([]), []);
+
+    const triggerOpponentTurn = useCallback(async (playerAction: string) => {
+        if (!activeConflict) return;
+        try {
+            const res = await fetch('/api/opponent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    playerCountry,
+                    opponentCountry: activeConflict.defender,
+                    playerAction,
+                    scenarioPhase,
+                    year: activeConflict.year,
+                    nuclearAlertLevel,
+                    destroyedBases,
+                })
+            });
+            const data = await res.json();
+            if (data.actions && Array.isArray(data.actions)) {
+                data.actions.forEach((a: OpponentAction) => addOpponentAction(a));
+            }
+            if (data.newNuclearLevel !== undefined) {
+                setNuclearAlertLevel(l => Math.max(l, data.newNuclearLevel));
+            }
+            if (data.phase) setScenarioPhase(data.phase);
+        } catch (e) {
+            console.warn('Opponent AI error:', e);
+        }
+    }, [activeConflict, playerCountry, scenarioPhase, nuclearAlertLevel, destroyedBases, addOpponentAction]);
 
     const initializeData = useCallback(async () => {
         const to = (url: string) => {
@@ -235,6 +335,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             if (data.scenario.year) {
                 setSelectedYear(data.scenario.year);
             }
+            // Auto-navigate map
+            const mapInfo = SCENARIO_MAP_DATA[scenarioId];
+            if (mapInfo) {
+                setMapCenter(mapInfo.center);
+                setMapZoom(mapInfo.zoom);
+            }
         } catch (err) {
             console.warn('Backend offline, using client-side fallback:', (err as Error)?.message);
             // CLIENT-SIDE FALLBACK — build scenario from already-loaded data
@@ -256,9 +362,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             };
             setActiveScenario(fallback);
             setSelectedYear(year || config.year);
+
+            // Auto-navigate map fallback
+            const mapInfo = SCENARIO_MAP_DATA[scenarioId];
+            if (mapInfo) {
+                setMapCenter(mapInfo.center);
+                setMapZoom(mapInfo.zoom);
+            }
         }
         setIsLoading(false);
-    }, [selectedYear, predictions]);
+    }, [selectedYear, predictions, computeCascadeLocally, setMapCenter, setMapZoom]);
 
     const runCustomScenario = useCallback(async (countryA: string, countryB: string, year: number) => {
         setIsLoading(true);
@@ -286,6 +399,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 predictions,
             };
             setActiveScenario(fallback);
+
+            // Auto-navigate map for custom pairs
+            setMapCenter([30, 60]);
+            setMapZoom(4);
         } catch (e) {
             // backend offline — use local cascade
             console.warn('Custom scenario: backend offline, using local cascade:', (e as Error)?.message);
@@ -304,9 +421,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 countries: {},
                 predictions,
             });
+
+            // Auto-navigate map for custom pairs fallback
+            setMapCenter([30, 60]);
+            setMapZoom(4);
         }
         setIsLoading(false);
-    }, [predictions, computeCascadeLocally]);
+    }, [predictions, computeCascadeLocally, setMapCenter, setMapZoom]);
 
     const sendChatMessage = useCallback(async (message: string) => {
         const userMsg: ChatMessage = {
@@ -381,6 +502,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                     predictions,
                     risks,
                     year: selectedYear,
+                    playerCountry,
+                    campaignPlan,
+                    destroyedBases,
                 }),
             });
 
@@ -405,6 +529,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 responseText = responseText.replace(/\[REVEAL_INTEL:[^\]]+\]/g, '').trim();
             }
 
+            // TARGET COMMAND INTERCEPTOR
+            const targetRegex = /\[SET_TARGET:([^\]]+)\]/g;
+            let targetMatch;
+            let newTargetBaseName: string | null = null;
+            while ((targetMatch = targetRegex.exec(responseText)) !== null) {
+                newTargetBaseName = targetMatch[1].trim();
+            }
+            if (newTargetBaseName) {
+                responseText = responseText.replace(targetRegex, '').trim();
+                const detailedBases = Object.values(COUNTRY_BASES).flat();
+                const allGlobalBases = [...detailedBases, ...GLOBAL_MILITARY_BASES, ...customBases];
+                const targetBase = allGlobalBases.find(b =>
+                    b.name.toLowerCase().includes(newTargetBaseName!.toLowerCase()) ||
+                    b.shortName.toLowerCase().includes(newTargetBaseName!.toLowerCase()) ||
+                    newTargetBaseName!.toLowerCase().includes(b.shortName.toLowerCase())
+                );
+
+
+                if (targetBase) {
+                    setCampaignPlan(prev => {
+                        let newActiveBases = prev.activeBases;
+                        // Auto-select a base only if none are selected, but don't force it if commander already has a plan
+                        if (newActiveBases.length === 0 && playerCountry && COUNTRY_BASES[playerCountry]) {
+                            const defaultBase = COUNTRY_BASES[playerCountry].find(b => b.type === 'air' || b.type === 'missile') || COUNTRY_BASES[playerCountry][0];
+                            if (defaultBase) {
+                                newActiveBases = [defaultBase.id];
+                            }
+                        }
+                        return { ...prev, activeBases: newActiveBases, target: targetBase.coords as [number, number] };
+                    });
+                    responseText += `\n\n> **[STRATEGIC ADVISOR]** Target identified: **${targetBase.shortName}** (${targetBase.country}). 🎯 Coordinates locked. Ready for engagement configuration in the Strategic Command panel.`;
+                    setMapCenter(targetBase.coords as [number, number]);
+                    setMapZoom(6);
+                }
+            }
+
             const assistantMsg: ChatMessage = {
                 id: (Date.now() + 1).toString(),
                 role: 'assistant',
@@ -423,7 +583,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setChatMessages(prev => [...prev, errorMsg]);
         }
         setIsChatLoading(false);
-    }, [chatMessages, activeScenario, predictions, risks, selectedYear, loadScenario, runCustomScenario]);
+    }, [chatMessages, activeScenario, predictions, risks, selectedYear, loadScenario, runCustomScenario, campaignPlan, customBases, destroyedBases, playerCountry, setMapCenter, setMapZoom, setIntelRevealed, setChatMessages, setIsChatLoading, setCampaignPlan]);
 
     return (
         <AppContext.Provider value={{
@@ -439,6 +599,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             intelRevealed, setIntelRevealed,
             playerName, setPlayerName,
             showLoginModal, setShowLoginModal,
+            // Wargame conflict state
+            destroyedBases, destroyBase,
+            opponentActions, addOpponentAction, clearOpponentActions,
+            scenarioPhase, setScenarioPhase,
+            showCommandDashboard, setShowCommandDashboard,
+            strikeOrigin, setStrikeOrigin,
+            activeConflict, setActiveConflict,
+            triggerOpponentTurn,
+            nuclearAlertLevel, setNuclearAlertLevel,
+            mapCenter, setMapCenter,
+            mapZoom, setMapZoom,
         }}>
             {children}
         </AppContext.Provider>

@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext';
 import { Play, Activity, ShieldAlert, Crosshair } from 'lucide-react';
 
 export default function CampaignBuilder() {
-    const { playerCountry, campaignPlan, setSimulationResults } = useApp();
+    const { playerCountry, campaignPlan, setSimulationResults, sendChatMessage } = useApp();
     const [isOpen, setIsOpen] = useState(true);
     const [isSimulating, setIsSimulating] = useState(false);
 
@@ -14,9 +14,11 @@ export default function CampaignBuilder() {
         doctrine_id: 1, // 0: cold start, 1: surgical, 2: air_land, etc.
         air_force_readiness: 85,
         army_readiness: 80,
+        assetType: 'Fighter Jets',
+        quantity: 24,
     });
 
-    if (!playerCountry) return null;
+    if (!playerCountry || !campaignPlan.target) return null;
 
     const handleSimulate = async () => {
         if (!campaignPlan.target || campaignPlan.activeBases.length === 0) {
@@ -26,8 +28,6 @@ export default function CampaignBuilder() {
 
         setIsSimulating(true);
         try {
-            // Predict adversary based on target location simply (for prototype)
-            // In a real app we'd map coords to specific country poly regions
             const adversary = playerCountry === 'India' ? 'Pakistan' : 'Russia';
 
             const res = await fetch('/api/simulate-campaign', {
@@ -43,6 +43,13 @@ export default function CampaignBuilder() {
             });
             const data = await res.json();
             setSimulationResults(data);
+
+            // Trigger the AI Battle Report
+            sendChatMessage(`[SYSTEM LOG]: Commander executed strike on coordinates [${campaignPlan.target[0].toFixed(2)}, ${campaignPlan.target[1].toFixed(2)}] using ${config.quantity} ${config.assetType}. Escalation Posture: ${config.escalation_posture}. Provide an immediate and detailed Battle Damage Assessment (BDA) report and strategic fallout analysis.`);
+
+            // Clear target after launch so it feels "done"
+            // We do not clear it if we want the user to see exactly what they hit, but clearing is cleaner.
+
         } catch (e) {
             console.error(e);
             alert('Simulation Engine disconnected.');
@@ -58,13 +65,19 @@ export default function CampaignBuilder() {
                     initial={{ x: 300, opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: 300, opacity: 0 }}
-                    className="absolute top-20 right-4 w-80 bg-black/90 border border-white/10 backdrop-blur-md rounded-xl shadow-2xl overflow-hidden z-[400]"
+                    className="absolute top-24 right-4 w-80 bg-black/90 border border-white/10 backdrop-blur-md rounded-xl shadow-2xl overflow-hidden z-[400]"
                 >
                     <div className="p-4 border-b border-white/10 bg-gradient-to-r from-red-500/20 to-transparent flex justify-between items-center">
                         <div className="flex items-center gap-2">
                             <Crosshair size={18} className="text-red-400" />
                             <h2 className="text-sm font-bold text-white uppercase tracking-wider">STRATEGIC COMMAND</h2>
                         </div>
+                        <button
+                            onClick={() => setIsOpen(false)}
+                            className="text-white/40 hover:text-white transition cursor-pointer"
+                        >
+                            ✕
+                        </button>
                     </div>
 
                     <div className="p-4 space-y-4">
@@ -81,41 +94,31 @@ export default function CampaignBuilder() {
 
                         <div className="space-y-3">
                             <div>
-                                <label className="text-xs text-white/60 uppercase block mb-1">Escalation Posture</label>
+                                <label className="text-xs text-white/60 uppercase block mb-1">Asset Allocation</label>
                                 <select
                                     className="w-full bg-[#111] border border-white/10 text-white text-xs p-2 rounded"
-                                    value={config.escalation_posture}
-                                    onChange={e => setConfig({ ...config, escalation_posture: Number(e.target.value) })}
+                                    value={config.assetType}
+                                    onChange={e => setConfig({ ...config, assetType: e.target.value })}
                                 >
-                                    <option value={0}>Low (Limited Skirmish)</option>
-                                    <option value={1}>Calibrated (Conventional)</option>
-                                    <option value={2}>Full Scale (Total War)</option>
+                                    <option value="Fighter Jets">Fighter Jets</option>
+                                    <option value="Stealth Bombers">Stealth Bombers</option>
+                                    <option value="Drone Swarm">UCAV Drone Swarm</option>
+                                    <option value="Cruise Missiles">Cruise Missiles</option>
+                                    <option value="Ground Assault Brigade">Ground Assault Brigade</option>
+                                    <option value="Naval Strike Group">Naval Strike Group</option>
                                 </select>
                             </div>
 
                             <div>
                                 <label className="text-xs text-white/60 uppercase flex justify-between mb-1">
-                                    <span>Surprise Factor</span>
-                                    <span>{config.surprise_factor}%</span>
+                                    <span>Quantity / Force Size</span>
+                                    <span className="text-red-400 font-bold">{config.quantity} units</span>
                                 </label>
                                 <input
-                                    type="range" min="10" max="100"
+                                    type="range" min="1" max="150"
                                     className="w-full accent-red-500"
-                                    value={config.surprise_factor}
-                                    onChange={e => setConfig({ ...config, surprise_factor: Number(e.target.value) })}
-                                />
-                            </div>
-
-                            <div>
-                                <label className="text-xs text-white/60 uppercase flex justify-between mb-1">
-                                    <span>Air Force Readiness</span>
-                                    <span>{config.air_force_readiness}%</span>
-                                </label>
-                                <input
-                                    type="range" min="10" max="100"
-                                    className="w-full accent-blue-500"
-                                    value={config.air_force_readiness}
-                                    onChange={e => setConfig({ ...config, air_force_readiness: Number(e.target.value) })}
+                                    value={config.quantity}
+                                    onChange={e => setConfig({ ...config, quantity: Number(e.target.value) })}
                                 />
                             </div>
                         </div>
