@@ -539,6 +539,18 @@ export default function WorldMap() {
                                         <div style={{ padding: '8px 14px 12px', background: 'rgba(0,0,0,0.2)' }}>
                                             <div style={{ fontSize: 10, color: '#8b949e', lineHeight: 1.5, fontStyle: 'italic', marginBottom: 12 }}>{base.role}</div>
 
+                                            {playerCountry === base.country && !isDestroyed && (
+                                                <div style={{ marginBottom: 12, padding: '8px', background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.3)', borderRadius: 6 }}>
+                                                    <div style={{ fontSize: 9, fontWeight: 800, color: '#eab308', textTransform: 'uppercase', marginBottom: 4, letterSpacing: 1, display: 'flex', justifyContent: 'space-between' }}>
+                                                        <span>Tactical Brilliance</span>
+                                                        <span>{base.strength?.tacticalBrillianceRating || 'N/A'}/10</span>
+                                                    </div>
+                                                    <div style={{ fontSize: 10, color: '#fef08a', lineHeight: 1.4 }}>
+                                                        {base.strength?.notes || 'No specific tactical notes available.'}
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             {/* Action Buttons */}
                                             {playerCountry && !isDestroyed && (
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
@@ -600,7 +612,7 @@ export default function WorldMap() {
                         key={`adz-${z.id}-${i}`}
                         center={z.coords}
                         radius={z.radiusKm * 1000}
-                        pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.08, weight: 1.5, opacity: 0.6, dashArray: '6 4' }}
+                        pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.08, weight: 1.5, opacity: 0.6, dashArray: '6 4', interactive: false }}
                     >
                         <Tooltip permanent direction="top" offset={[0, -6]}>
                             <span style={{ fontSize: 10, fontWeight: 800, color: '#065f46', background: 'rgba(236,253,245,0.98)', padding: '2px 6px', borderRadius: 3, border: '1px solid #10b981', letterSpacing: 0.4 }}>
@@ -623,6 +635,7 @@ export default function WorldMap() {
                                 color: edge.is_alliance ? 'rgba(88,166,255,0.25)' : 'rgba(239,68,68,0.18)', // Updated network colors
                                 weight: Math.abs(edge.weight) * 2,
                                 dashArray: edge.is_alliance ? undefined : '6 4',
+                                interactive: false
                             }}
                         />
                     );
@@ -636,7 +649,7 @@ export default function WorldMap() {
                         <React.Fragment key={`player-atk-${i}`}>
                             <Polyline
                                 positions={[base.coords as [number, number], campaignPlan.target!]}
-                                pathOptions={{ color: '#ef4444', weight: 3, dashArray: '10 10', opacity: 0.8, lineCap: 'round' }}
+                                pathOptions={{ color: '#ef4444', weight: 3, dashArray: '10 10', opacity: 0.8, lineCap: 'round', interactive: false }}
                             />
                         </React.Fragment>
                     );
@@ -668,6 +681,7 @@ export default function WorldMap() {
                                     dashArray: getMovementDash(mov.type),
                                     lineCap: 'round',
                                     lineJoin: 'round',
+                                    interactive: false
                                 }}
                             >
                                 <Tooltip sticky>
@@ -680,7 +694,7 @@ export default function WorldMap() {
                             <CircleMarker
                                 center={mov.positions[mov.positions.length - 1]}
                                 radius={mov.type === 'attack' ? 5 : 4}
-                                pathOptions={{ color: mov.color, fillColor: mov.color, fillOpacity: 0.85 * opacity, weight: 2 }}
+                                pathOptions={{ color: mov.color, fillColor: mov.color, fillOpacity: 0.85 * opacity, weight: 2, interactive: false }}
                             />
                         </React.Fragment>
                     );
@@ -693,7 +707,7 @@ export default function WorldMap() {
                     return (
                         <React.Fragment key={`cp-${i}`}>
                             <CircleMarker center={cp.coords} radius={size + 5}
-                                pathOptions={{ color: cpColor, fillColor: cpColor, fillOpacity: 0.12, weight: 1, opacity: 0.3 }}
+                                pathOptions={{ color: cpColor, fillColor: cpColor, fillOpacity: 0.12, weight: 1, opacity: 0.3, interactive: false }}
                             />
                             <CircleMarker center={cp.coords} radius={size}
                                 pathOptions={{ color: '#fff', fillColor: cpColor, fillOpacity: 0.9, weight: 2 }}
@@ -731,6 +745,7 @@ export default function WorldMap() {
                                     weight: 1.5,
                                     opacity: 0.5,
                                     dashArray: '4 3',
+                                    interactive: false
                                 }}
                             />
                             {/* Inner base dot */}

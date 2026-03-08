@@ -166,14 +166,18 @@ const SCENARIO_MAP_DATA: Record<string, { center: [number, number]; zoom: number
 };
 
 const AD_LAYOUTS: Array<{ baseId: string; label: string; radiusKm: number }> = [
-    { baseId: 'in-missile-s400', label: 'S-400', radiusKm: 400 },
+    { baseId: 'in-missile-s400-punjab', label: 'S-400 (North)', radiusKm: 400 },
+    { baseId: 'in-missile-s400-gujarat', label: 'S-400 (West)', radiusKm: 400 },
+    { baseId: 'in-missile-s400-rajasthan', label: 'S-400 (South-West)', radiusKm: 400 },
+    { baseId: 'in-missile-s400-assam', label: 'S-400 (East)', radiusKm: 400 },
+    { baseId: 'in-missile-s400-siliguri', label: 'S-400 (Siliguri)', radiusKm: 400 },
     { baseId: 'in-af-ambala', label: 'Akash', radiusKm: 70 },
     { baseId: 'in-af-adampur', label: 'Spyder', radiusKm: 35 },
     { baseId: 'in-af-halwara', label: 'Akash', radiusKm: 70 },
     { baseId: 'in-af-pathankot', label: 'Spyder', radiusKm: 35 },
     { baseId: 'in-af-srinagar', label: 'Spyder', radiusKm: 35 },
     { baseId: 'in-af-jodhpur', label: 'Akash', radiusKm: 70 },
-    { baseId: 'in-af-hasimara', label: 'S-400', radiusKm: 400 },
+    { baseId: 'in-af-hasimara', label: 'Akash', radiusKm: 70 },
     { baseId: 'in-navy-mumbai', label: 'Barak-8', radiusKm: 150 },
     { baseId: 'in-navy-vizag', label: 'Barak-8', radiusKm: 150 },
     { baseId: 'pk-af-sargodha', label: 'HQ-9', radiusKm: 200 },

@@ -22,6 +22,60 @@ export default function CampaignBuilder() {
 
     if (!playerCountry || !campaignPlan.target) return null;
 
+    const calculateBaseStrength = () => {
+        let totalJets = 0, totalMen = 0, totalTanks = 0, totalShips = 0, totalMissiles = 0;
+        let avgBrilliance = 0;
+        let countedBases = 0;
+
+        const allBases: any[] = [...Object.values(COUNTRY_BASES).flat(), ...GLOBAL_MILITARY_BASES];
+
+        campaignPlan.activeBases.forEach(baseId => {
+            const base = allBases.find(b => b.id === baseId);
+            if (base) {
+                if (base.strength) {
+                    // CountryBase format
+                    totalJets += base.strength.jets || 0;
+                    totalMen += base.strength.men || 0;
+                    totalTanks += base.strength.tanks || 0;
+                    totalShips += base.strength.ships || 0;
+                    totalMissiles += (base.strength.missiles?.length || 0) * 10;
+                    avgBrilliance += base.strength.tacticalBrillianceRating || 5;
+                } else if (base.assets) {
+                    // MilitaryBaseData format
+                    // Rough estimation based on asset length
+                    totalJets += base.assets.filter((a: string) => a.toLowerCase().includes('f-') || a.toLowerCase().includes('su-') || a.toLowerCase().includes('mig-')).length * 24;
+                    totalShips += base.assets.filter((a: string) => a.toLowerCase().includes('uss ') || a.toLowerCase().includes('class') || a.toLowerCase().includes('ship') || a.toLowerCase().includes('destroyer')).length * 5;
+                    totalMissiles += base.assets.filter((a: string) => a.toLowerCase().includes('missile') || a.toLowerCase().includes('bomb')).length * 20;
+
+                    if (typeof base.personnel === 'string') {
+                        const parsed = parseInt(base.personnel.replace(/,/g, ''), 10);
+                        if (!isNaN(parsed)) totalMen += parsed;
+                    } else if (typeof base.personnel === 'number') {
+                        totalMen += base.personnel;
+                    }
+
+                    avgBrilliance += 7; // default for major global bases
+                }
+                countedBases++;
+            }
+        });
+
+        if (countedBases > 0) avgBrilliance /= countedBases;
+
+        const calcAir = Math.min(100, Math.max(30, (totalJets / 100) * 100));
+        const calcArmy = Math.min(100, Math.max(30, (totalMen / 50000) * 100));
+        const calcNavy = Math.min(100, Math.max(30, (totalShips / 30) * 100));
+        const calcMissile = Math.min(100, Math.max(30, (totalMissiles / 50) * 100));
+
+        return {
+            air_force_readiness: Math.round(calcAir),
+            army_readiness: Math.round(calcArmy),
+            navy_readiness: Math.round(calcNavy),
+            missile_readiness: Math.round(calcMissile),
+            intel_grade: Math.round(avgBrilliance * 10),
+        };
+    };
+
     const handleSimulate = async () => {
         if (!campaignPlan.target || campaignPlan.activeBases.length === 0) {
             alert('Select at least one base and right-click to set a target on the map.');
@@ -32,6 +86,8 @@ export default function CampaignBuilder() {
         try {
             const adversary = playerCountry === 'India' ? 'Pakistan' : 'Russia';
 
+            const calculatedStrengths = calculateBaseStrength();
+
             const res = await fetch('/api/simulate-campaign', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -40,7 +96,9 @@ export default function CampaignBuilder() {
                     player_country: playerCountry,
                     adversary_country: adversary,
                     active_bases: campaignPlan.activeBases,
-                    ...config
+                    ...config,
+                    // Override default config with calculated strengths based on selected bases
+                    ...calculatedStrengths
                 })
             });
             const data = await res.json();
@@ -63,7 +121,7 @@ export default function CampaignBuilder() {
                 if (nearest && nearest.d < 1.0) { // ~<1 deg proximity
                     destroyBase(nearest.id);
                 }
-            } catch {}
+            } catch { }
 
             // Clear target after launch so it feels "done"
             // We do not clear it if we want the user to see exactly what they hit, but clearing is cleaner.

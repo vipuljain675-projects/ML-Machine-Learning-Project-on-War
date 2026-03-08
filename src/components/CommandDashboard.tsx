@@ -12,7 +12,7 @@ const COUNTRY_FIREPOWER: Record<string, Record<Tab, any>> = {
     India: {
         airforce: { combatAircraft: 600, rafale: 36, su30mki: 272, tejas: 83, mig29: 66, helicopters: 550, drones: 186, awacs: 3, tankers: 6 },
         army: { activeTroops: 1460000, reserveTroops: 1155000, tanks: 3740, artillery: 4060, rocketSystems: 180, apcs: 4000 },
-        navy: { activePlatforms: 132, carriers: 2, destroyers: 10, frigates: 15, submarines: 16, patrolBoats: 42, coastGuard: 156 },
+        navy: { activePlatforms: 295, carriers: 2, destroyers: 20, frigates: 25, submarines: 26, patrolBoats: 42, coastGuard: 156 },
         missiles: [
             { name: 'BrahMos Cruise', range: '400km', speed: 'Mach 2.8', warhead: '300kg', deployments: 'Land/Ship/Air/Sub', nuclear: false },
             { name: 'S-400 Triumf SAM', range: '400km', speed: 'Mach 14', warhead: 'Fragmentation', deployments: '5 regiments (40N6)', nuclear: false },
@@ -425,8 +425,22 @@ export default function CommandDashboard() {
                             setScenarioPhase('active');
                             // Align map and overlays with the custom scenario
                             runCustomScenario(conflict.attacker, conflict.defender, conflict.year);
-                            // Commander guidance prompt
-                            sendChatMessage(`We have initiated a scenario: ${conflict.attacker} vs ${conflict.defender} in ${conflict.year}. Provide a step-by-step operational plan (3-5 steps), expected enemy reaction, and escalation risks.`);
+                            // Commander guidance prompt with specific context and asset overrides
+                            let prompt = `I have decided to initiate a scenario: ${conflict.attacker} vs ${conflict.defender} in the year ${conflict.year}. 
+Strategic rationale / Casus Belli: ${conflict.casusBelli}.
+Specific Commander Context: ${conflict.reasoning || 'No additional context provided.'}`;
+
+                            if (conflict.customAssets && (conflict.customAssets.jets || conflict.customAssets.tanks || conflict.customAssets.troops)) {
+                                prompt += `\n\nNote that by ${conflict.year}, we project our active forces for this operation to be strengthened to:`;
+                                if (conflict.customAssets.jets) prompt += ` ${conflict.customAssets.jets} Combat Aircraft,`;
+                                if (conflict.customAssets.tanks) prompt += ` ${conflict.customAssets.tanks} Main Battle Tanks,`;
+                                if (conflict.customAssets.troops) prompt += ` ${conflict.customAssets.troops} Active Troops.`;
+                                prompt += ` Factor these enhanced capabilities into your analysis.`;
+                            }
+
+                            prompt += `\n\nAnalyze this specific rationale. Provide a step-by-step operational plan (3-5 steps), expected enemy reaction, escalation risks, and explicitly advise on what I MUST DO and what I MUST AVOID DOING.`;
+
+                            sendChatMessage(prompt);
                             setShowScenarioCreator(false);
                             setShowCommandDashboard(false);
                         }}
@@ -445,13 +459,16 @@ const CASUS_BELLI = ['Full Scale Invasion', 'Border Incursion', 'Proxy War', 'Na
 function ScenarioCreator({ playerCountry, onClose, onLaunch }: {
     playerCountry: string;
     onClose: () => void;
-    onLaunch: (c: { attacker: string; defender: string; year: number; casusBelli: string }) => void;
+    onLaunch: (c: { attacker: string; defender: string; year: number; casusBelli: string; reasoning: string; customAssets?: { jets: number; tanks: number; troops: number } }) => void;
 }) {
     const [opponent, setOpponent] = useState('Pakistan');
     const [year, setYear] = useState(2027);
     const [casusBelli, setCasusBelli] = useState('Full Scale Invasion');
-    const [aiQuestion, setAiQuestion] = useState('');
     const [aiAnswer, setAiAnswer] = useState('');
+    const [customJets, setCustomJets] = useState<number | ''>('');
+    const [customTanks, setCustomTanks] = useState<number | ''>('');
+    const [customTroops, setCustomTroops] = useState<number | ''>('');
+    const [aiQuestion, setAiQuestion] = useState('');
     const [loading, setLoading] = useState(false);
 
     const opposingCountries = COUNTRIES.filter(c => c !== playerCountry);
@@ -551,14 +568,14 @@ function ScenarioCreator({ playerCountry, onClose, onLaunch }: {
 
                     {/* AI Rationale */}
                     <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '12px 14px' }}>
-                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>🤖 Why this conflict? (briefing for AI advisor)</div>
+                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>🤖 Specific Context / Rationale (Sent to AI)</div>
                         <input
                             type="text"
                             value={aiAnswer}
                             onChange={e => setAiAnswer(e.target.value)}
-                            placeholder={`e.g. "China invades Taiwan simultaneously, Pakistan opens second front..."`}
+                            placeholder={`e.g. "Invading PoK in 2027 cause China is busy in Taiwan..."`}
                             onKeyDown={e => e.key === 'Enter' && askAI()}
-                            style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: 'rgba(255,255,255,0.7)', fontSize: 11, boxSizing: 'border-box' }}
+                            style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: 'rgba(255,255,255,0.9)', fontSize: 12, boxSizing: 'border-box' }}
                         />
                         {aiQuestion && (
                             <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(88,166,255,0.08)', borderRadius: 6, borderLeft: '2px solid #58a6ff', fontSize: 10, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
@@ -568,9 +585,53 @@ function ScenarioCreator({ playerCountry, onClose, onLaunch }: {
                         )}
                     </div>
 
+                    {/* Resource Overrides */}
+                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '12px 14px' }}>
+                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>⚡ Future Force Projections (Optional Override)</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                            <div>
+                                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4 }}>Combat Aircraft</div>
+                                <input
+                                    type="number"
+                                    value={customJets}
+                                    onChange={e => setCustomJets(e.target.value === '' ? '' : Number(e.target.value))}
+                                    placeholder={COUNTRY_FIREPOWER[playerCountry]?.airforce?.combatAircraft?.toString() || '0'}
+                                    style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: 6, color: '#58a6ff', padding: '6px 10px', fontSize: 12, outline: 'none', boxSizing: 'border-box', fontFamily: 'JetBrains Mono, monospace' }}
+                                />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4 }}>Main Battle Tanks</div>
+                                <input
+                                    type="number"
+                                    value={customTanks}
+                                    onChange={e => setCustomTanks(e.target.value === '' ? '' : Number(e.target.value))}
+                                    placeholder={COUNTRY_FIREPOWER[playerCountry]?.army?.tanks?.toString() || '0'}
+                                    style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(249, 115, 22, 0.3)', borderRadius: 6, color: '#f97316', padding: '6px 10px', fontSize: 12, outline: 'none', boxSizing: 'border-box', fontFamily: 'JetBrains Mono, monospace' }}
+                                />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4 }}>Active Troops</div>
+                                <input
+                                    type="number"
+                                    value={customTroops}
+                                    onChange={e => setCustomTroops(e.target.value === '' ? '' : Number(e.target.value))}
+                                    placeholder={COUNTRY_FIREPOWER[playerCountry]?.army?.activeTroops?.toString() || '0'}
+                                    style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 6, color: '#22c55e', padding: '6px 10px', fontSize: 12, outline: 'none', boxSizing: 'border-box', fontFamily: 'JetBrains Mono, monospace' }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Launch */}
                     <button
-                        onClick={() => onLaunch({ attacker: playerCountry, defender: opponent, year, casusBelli })}
+                        onClick={() => {
+                            const customAssets = {
+                                jets: customJets === '' ? 0 : customJets,
+                                tanks: customTanks === '' ? 0 : customTanks,
+                                troops: customTroops === '' ? 0 : customTroops
+                            };
+                            onLaunch({ attacker: playerCountry, defender: opponent, year, casusBelli, reasoning: aiAnswer, customAssets });
+                        }}
                         style={{
                             width: '100%', padding: '14px', borderRadius: 10, cursor: 'pointer',
                             background: 'linear-gradient(135deg, rgba(239,68,68,0.3) 0%, rgba(248,81,73,0.2) 100%)',

@@ -51,10 +51,11 @@ export default function LoginModal() {
                         setShowLoginModal(false);
                         setShowCommandDashboard(true);
                         // Initial strategic briefing for the commander with intel reveal
-                        sendChatMessage(`As the head of ${selectedCountry}, provide a concise strategic onboarding briefing:
-- Immediate threats and priorities
-- Key bases and force disposition
-- Recommended first steps
+                        sendChatMessage(`I have just assumed command as the leader of ${selectedCountry}. The year is 2026. Review our nation's exact military arsenal and current geopolitical standing. Provide an immediate, highly classified situational briefing. Include:
+1. Current Global & Regional Threat Landscape (as of 2026).
+2. Our Strategic Posture (strengths and vulnerabilities based on our actual bases/assets).
+3. Immediate Priorities and Recommended First Steps for my command.
+Make it sound like a high-level military intelligence briefing.
 [REVEAL_INTEL:${selectedCountry}]`);
                     }, 500);
                     return 100;
